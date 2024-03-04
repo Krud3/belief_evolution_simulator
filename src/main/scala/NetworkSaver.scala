@@ -20,7 +20,7 @@ class NetworkSaver(dataSavingPath: String) extends Actor{
           network = network :+ NetworkStructure(senderName, neighbor.path.name, influence)
       }
       networksSaved += 1
-      println(s"$senderName saved ${neighbors.map(_.path.name).mkString(", ")}")
+      //println(s"$senderName saved ${neighbors.map(_.path.name).mkString(", ")}")
     case ExportNetwork(networkName) =>
       val path = s"${dataSavingPath}/network_structure_${networkName}.csv"
       saveToCsv(

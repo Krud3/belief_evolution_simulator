@@ -17,9 +17,7 @@ case class RequestOpinion(belief: Double)
 
 case class SendOpinion(opinion: Int, belief: Double, senderAgent: ActorRef) // 0 = silent, 1 = agree, 2 disagree
 
-case class SendAgentCharacteristics(agentData: AgentCharacteristicsItem)
-
-case class ConfidenceUpdated(hasNextIter: Boolean, confidence: Double, opinion: Int, belief: Double)
+case class ConfidenceUpdated(hasNextIter: Boolean)
 
 case class SendNeighbors(network: Vector[ActorRef], influences: Vector[Double])
 
@@ -38,10 +36,11 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
     var hasUpdatedInfluences: Boolean = false
     var firstIter: Boolean = true
     var round = 0
-    implicit val timeout: Timeout = Timeout(60.seconds)
+    
+    implicit val timeout: Timeout = Timeout(600.seconds)
 
     // Experimental zone
-    val openMindedness: Int = 20
+    val openMindedness: Int = 100
     var curInteractions: Int = 0
     //
 
@@ -88,6 +87,15 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
         val upper = belief + tolRadius + tolOffset
         lower <= neighborBelief && neighborBelief <= upper
     }
+    
+    // Currently just places random numbers as the influences
+    def generateInfluences(): Unit = {
+        val random = new Random
+        val randomNumbers = Vector.fill(neighbors.size)(random.nextDouble())
+        val sum = randomNumbers.sum
+        influences = randomNumbers.map(_ / sum)
+        hasUpdatedInfluences = true
+    }
 
     def receive: Receive = {
         case AddToNeighborhood(neighbor) =>
@@ -104,13 +112,8 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
             val oldConfidence = confidence
 
             // Check if influences have been updated
-            // Currently just places random numbers as the influences maybe should use influence counts to
             if (!hasUpdatedInfluences) {
-                val random = new Random
-                val randomNumbers = Vector.fill(neighbors.size)(random.nextDouble())
-                val sum = randomNumbers.sum
-                influences = randomNumbers.map(_ / sum)
-                hasUpdatedInfluences = true
+                generateInfluences()
             }
 
             calculateOpinionClimate { (climate, updatedBelief) =>
@@ -120,16 +123,13 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
                         round, self.path.name, belief, confidence, perceivedOpinionClimate,
                         confidence >= beliefExpressionThreshold
                     )
-                    println(s"${self.path.name}: neighbors ${neighbors.size}")
                 }
               
                 round += 1
                 perceivedOpinionClimate = climate
                 confidenceUnbounded = math.max(confidenceUnbounded + perceivedOpinionClimate, 0)
                 confidence = (2 / (1 + Math.exp(-confidenceUnbounded))) - 1
-//                println(s"Influences of ${self.path.name}: ${neighbors.size} " +
-//                    s"${influences.map(influence => roundToNDecimals(influence, 4))} " +
-//                    s"by ${neighbors.map(actor => actor.path.name)}")
+                
                 if (!firstIter) belief = updatedBelief
                 else {
                     agentDataSaver ! SendStaticAgentData(
@@ -145,32 +145,7 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
                     confidence >= beliefExpressionThreshold
                 )
 
-                if (confidence >= beliefExpressionThreshold & belief < 0.5)
-                    network ! ConfidenceUpdated(aboveThreshold, confidence, 0, belief)
-                else if (confidence >= beliefExpressionThreshold & belief >= 0.5)
-                    network ! ConfidenceUpdated(aboveThreshold, confidence, 1, belief)
-                else if (confidence < beliefExpressionThreshold & belief < 0.5)
-                    network ! ConfidenceUpdated(aboveThreshold, confidence, 2, belief)
-                else if (confidence < beliefExpressionThreshold & belief >= 0.5)
-                    network ! ConfidenceUpdated(aboveThreshold, confidence, 3, belief)
-                else
-                    println("Algo raro pasa mate")
-            }
-
-        case RequestAgentCharacteristics =>
-            val network = sender()
-            calculateOpinionClimate { (climate, _) =>
-                perceivedOpinionClimate = climate
-                val agentData = AgentCharacteristicsItem(
-                    neighbors.size,
-                    belief,
-                    beliefExpressionThreshold,
-                    confidence,
-                    confidence >= beliefExpressionThreshold,
-                    perceivedOpinionClimate
-                )
-                curInteractions = 0
-                network ! SendAgentCharacteristics(agentData)
+                network ! ConfidenceUpdated(aboveThreshold)
             }
 
     }

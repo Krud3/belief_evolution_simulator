@@ -11,8 +11,12 @@ class CustomTimer {
     def stop(message: String, timeUnit: TimeUnit = MILLISECONDS): Unit = {
         endTime = Some(System.nanoTime())
         val duration = endTime.get - startTime.getOrElse(throw new IllegalStateException("Timer was not started"))
-
-        val durationInUnit = timeUnit match {
+        val durationInUnit = getTimeElapsed(duration, timeUnit)
+        println(s"$message: $durationInUnit ${timeUnit.toString.toLowerCase}")
+    }
+    
+    def getTimeElapsed(duration: Long, timeUnit: TimeUnit = MILLISECONDS): Long = {
+        timeUnit match {
             case NANOSECONDS => duration
             case MICROSECONDS => duration / 1000
             case MILLISECONDS => duration / 1000000
@@ -22,7 +26,5 @@ class CustomTimer {
             case DAYS => duration / 86400000000000L
             case _ => throw new UnsupportedOperationException("Unsupported time unit")
         }
-
-        println(s"$message: $durationInUnit ${timeUnit.toString.toLowerCase}")
     }
 }

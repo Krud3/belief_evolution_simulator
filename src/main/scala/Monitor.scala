@@ -38,121 +38,121 @@ case object Run extends OperationMode
 val mode: String = "Run"
 
 // Messages
-
-case class BuildNetwork(numberOfAgents: Int)
-case object StartNetwork
-case class SendNetworksData(data: Map[String, NetworkData])
+case class CreateNetwork
+(
+  numberOfAgents: Int,
+  density: Int,
+  stopThreshold: Double,
+  degreeDistributionParameter: Double,
+  distribution: Distribution
+)
+case object BuildNetwork
+case object RunNetwork
+case object StartAnalysis
+case object RunBatch
 
 // Actor
 class Monitor(operationMode: OperationMode, numOfNetworks: Int) extends Actor {
-    var data: Map[String, NetworkData] = Map.empty
-    var networks: Vector[ActorRef] = Vector.empty
-    var buildingTimer = new CustomTimer()
-    var runningTimer = new CustomTimer()
-    var dataSavingPath: String =  createRunDirectory("src/data/runs")
-    val dataSaver: ActorRef = context.actorOf(Props(new DataSaver(numOfNetworks, dataSavingPath)))
+    // Networks
+    val networks: Array[ActorRef] = Array.ofDim[ActorRef](numOfNetworks + 1)
+    var networkNumber: Int = 0
+
+    // Timing
+    val totalTimer = new CustomTimer()
+    val batchTimer = new CustomTimer()
+    val totalBatchTimer = new CustomTimer()
+    val buildingTimer: Array[CustomTimer] = Array.ofDim[CustomTimer](numOfNetworks + 1)
+    val runningTimer: Array[CustomTimer] = Array.ofDim[CustomTimer](numOfNetworks + 1)
+    val analysingTimer = new CustomTimer()
+
+    // Data saving
+    val dataSavingPath: String =  createRunDirectory("src/data/runs")
+    val dataSaver: ActorRef = context.actorOf(Props(new DataSaver(numOfNetworks, dataSavingPath)), name = "DataSaver")
+
+    // Batches
+    var curBatch: Int = 0
+    var numberOfBatches: Int = 0
+    var batchSize: Int = 0
+    var numberOfNetworksFinished: Int = 0
+    var networkInfo: (Int, Int, Double, Double, Distribution) = (0, 0, 0.0, 0.0, Uniform)
 
     def receive: Receive = {
-        case CreateNetwork(name, numberOfAgents, minNumberOfNeighbors, stopThreshold, degreeDistributionParameter,
-        distribution) =>
+        case CreateNetworkBatch(batchSize, batchNumber, numberOfAgents, density, stopThreshold,
+        degreeDistributionParameter, distribution) =>
+            this.batchSize = batchSize
+            this.numberOfBatches = batchNumber
+            networkInfo = (numberOfAgents, density, stopThreshold, degreeDistributionParameter, distribution)
+            self ! RunBatch
+            totalBatchTimer.start()
+
+        case RunBatch =>
+            batchTimer.start()
+            for (i <- 0 until batchSize) {
+                self ! CreateNetwork(
+                    networkInfo._1, networkInfo._2,
+                    networkInfo._3, networkInfo._4,
+                    networkInfo._5)
+            }
+            curBatch += 1
+
+
+        case CreateNetwork(numberOfAgents, density, stopThreshold, degreeDistributionParameter, distribution) =>
+            networkNumber += 1
             // Create a new Network actor
-            val newNetwork = context.actorOf(Props(new Network(minNumberOfNeighbors, degreeDistributionParameter,
-                stopThreshold, distribution, self, dataSavingPath, dataSaver)), name)
+            val newNetwork = context.actorOf(Props(new Network(numberOfAgents, density, degreeDistributionParameter,
+                stopThreshold, distribution, self, dataSavingPath, dataSaver)),
+                s"Network${networkNumber}_density$density"
+            )
 
             // Add the new Network actor reference to the networks sequence
-            networks = networks :+ newNetwork
-
-            // Initial values for the NetworkData
-            val initialReport = InitialReportData(Vector.empty, 0, 0.0, 0.0, Uniform)
-            val roundReports = Vector.empty[RoundReportData]
-            val finalReport = FinalReportData(0, Vector.empty)
-
-            // Add the data entry for later monitoring
-            data = data + (name -> NetworkData(initialReport, roundReports, finalReport))
+            networks(networkNumber) = newNetwork
 
             // Build the network
-            buildingTimer.start()
-            newNetwork ! BuildNetwork(numberOfAgents)
+            buildingTimer(networkNumber) = new CustomTimer()
+            buildingTimer(networkNumber).start()
+            newNetwork ! BuildNetwork
 
 
-        case InitialReport(reportData) =>
-
-            val updatedReportData = operationMode match {
-                case Run => reportData.copy(AgentCharacteristics = Vector.empty)
-                case Debug =>
-                    caseClassToString(reportData)
-                    buildingTimer.stop(s"Network building took")
-                    reportData
-            }
-
+        case BuildingComplete =>
             val network = sender()
             val networkName = network.path.name
-            val existingData = data(networkName)
-            val updatedData = existingData.copy(InitialReport = updatedReportData)
+            val networkNumber = "\\d+".r.findFirstIn(networkName).map(_.toInt).getOrElse(0)
+            buildingTimer(networkNumber).stop(s"$networkName building took")
+            runningTimer(networkNumber) = new CustomTimer()
+            runningTimer(networkNumber).start()
+            network ! RunNetwork
 
-            data = data + (networkName -> updatedData)
-            runningTimer.start()
-            network ! StartNetwork
 
-
-        case RoundReport(reportData) =>
+        case RunningComplete =>
             //caseClassToString(reportData)
-            //println(reportData)
+            val network = sender()
+            val networkName = network.path.name
+            val networkNumber = "\\d+".r.findFirstIn(networkName).map(_.toInt).getOrElse(0)
+            runningTimer(networkNumber).stop(s"$networkName was running for")
             operationMode match {
                 case Debug =>
-                    //caseClassToString(reportData)
-                    val networkName = sender().path.name
-                    val existingData = data(networkName)
-                    val updatedRoundReports = existingData.RoundReport :+ reportData
-                    val updatedData = existingData.copy(RoundReport = updatedRoundReports)
-                    data = data + (networkName -> updatedData)
+                    network ! StartAnalysis
+                    analysingTimer.start()
                 case Run =>
+                    numberOfNetworksFinished += 1
 
-            }
-
-        case FinalReport(reportData) =>
-            //caseClassToString(reportData)
-            val networkName = sender().path.name
-            val existingData = data(networkName)
-
-            operationMode match {
-                case Debug =>
-                    runningTimer.stop(s"\nNetwork was running for")
-                    val updatedData = existingData.copy(FinalReport = reportData)
-                    data = data + (networkName -> updatedData)
-                    val agentCharacteristics = reportData.AgentCharacteristics
-
-                    // 1. Calculate the mean confidence
-                    val totalConfidence = agentCharacteristics.map(_.confidence).sum
-                    val meanConfidence = totalConfidence / agentCharacteristics.size
-
-                    // 2. Calculate the median confidence
-                    val sortedConfidences = agentCharacteristics.map(_.confidence).sorted
-                    val medianConfidence = if (agentCharacteristics.size % 2 == 0) {
-                        (sortedConfidences(agentCharacteristics.size / 2 - 1) + sortedConfidences(agentCharacteristics.size / 2)) / 2.0
-                    } else {
-                        sortedConfidences(agentCharacteristics.size / 2)
+                    if (curBatch >= numberOfBatches & numberOfNetworksFinished >= batchSize) {
+                        batchTimer.stop(s"Batch$curBatch was running for")
+                        totalBatchTimer.stop(s"Batches were running for")
+                        for (i <- 1 to numOfNetworks) {
+                            networks(i) ! StartAnalysis
+                        }
+                        analysingTimer.start()
+                    } else if (numberOfNetworksFinished >= batchSize) {
+                        numberOfNetworksFinished = 0
+                        self ! RunBatch
+                        batchTimer.stop(s"Batch$curBatch was running for")
                     }
-
-                    // 3. Count agents based on their speaking status and belief
-                    val speakingBelief0 = agentCharacteristics.count(agent => agent.speaking && agent.belief < 0.5)
-                    val speakingBelief1 = agentCharacteristics.count(agent => agent.speaking && agent.belief >= 0.5)
-                    val silentBelief0 = agentCharacteristics.count(agent => !agent.speaking && agent.belief < 0.5)
-                    val silentBelief1 = agentCharacteristics.count(agent => !agent.speaking && agent.belief >= 0.5)
-                    //caseClassToString(reportData)
-                    println(s"Number of iterations: ${reportData.totalSteps}")
-                    println(s"Mean Confidence: $meanConfidence")
-                    println(s"Median Confidence: $medianConfidence")
-                    println(s"Speaking with Belief < 0.5: $speakingBelief0")
-                    println(s"Speaking with Belief >= 0.5: $speakingBelief1")
-                    println(s"Silent with Belief < 0.5: $silentBelief0")
-                    println(s"Silent with Belief>= 0.5: $silentBelief1")
-                    //DataSaver ! SendNetworksData(data)
-                case Run =>
-                    //val updatedReportData = reportData.copy(AgentCharacteristics = Vector.empty)
-                    val updatedData = existingData.copy(FinalReport = reportData)
-                    //data = data + (networkName -> updatedData)
-                    //DataSaver ! SendNetworksData(data)
             }
+            
+        case AnalysisComplete =>
+            analysingTimer.stop(s"Analysis running for")
+            totalTimer.stop("Total time elapsed")
+
     }
 }

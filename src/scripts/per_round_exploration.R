@@ -5,8 +5,8 @@ pacman::p_load(data.table, ggplot2, magick, ggpubr, gganimate, scales)
 args <- commandArgs(trailingOnly = TRUE)
 csv_directory_path <- args[1]
 networkName <- args[2]
-#csv_directory_path <- "src/data/runs/run_2024-02-23_17-48-51_173"
-#networkName <- "Network1_density3"
+#csv_directory_path <- "src/data/runs/run_2024-02-29_02-17-31_162"
+#networkName <- "Network9_density6"
 file_path <- paste0(csv_directory_path, "/", networkName, ".csv")
 static_file_path <- paste0(csv_directory_path, "/", "static_", networkName, ".csv")
 
@@ -89,7 +89,7 @@ createAnimatedPlot <- function(dt, groupColumn, save_directory, title, width = 5
     scale_y_continuous(labels = percent_format()) +
     labs(x = "Percentile Group", y = "Percentage", fill = "Is Speaking",
          title = paste("Number of neighbors percentiles speaking at round:", "{frame_time}")) +
-    scale_fill_manual(values = c("TRUE" = "#F8766D", "FALSE" = "#00BFC4"), name = "Is Speaking", labels = c("Yes", "No")) +
+    scale_fill_manual(values = c("TRUE" = "#00BFC4", "FALSE" = "#F8766D"), name = "Is Speaking", labels = c("No", "Yes")) +
     theme_minimal(base_size = 14) +
     theme(
       plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
@@ -172,7 +172,7 @@ for (r in rounds) {
 
   # Save the plot to a file in the temporary directory
   ggsave(filename = paste0(tempPlotDir, "/density_round_", r, ".png"), plot = p, width = 500, height = 500,
-         units = "px", dpi = 100, device = "png")
+         units = "px", dpi = 100, device = "png", type = "cairo")
 }
 
 # Combine the saved density plots into a GIF as before
@@ -232,10 +232,7 @@ createAnimatedBeliefConfidencePlot <- function(dt, save_directory, width = 600, 
 
 print("Started rendering final graph")
 createAnimatedBeliefConfidencePlot(dt, save_directory)
-
 print(paste("Finished plotting, saved at:", save_directory))
-
-
 
 
 
@@ -244,9 +241,5 @@ print(paste("Finished plotting, saved at:", save_directory))
 #### Experiments
 
 #final_round = dt[round == max(round), ]
-min(dt$numberOfNeighbors)
-
-
-
-
+#min(dt$numberOfNeighbors)
 

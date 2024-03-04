@@ -1,5 +1,4 @@
 import scala.collection.mutable
-import math.min
 
 class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean = false) {
   private val tree = Array.ofDim[Double](size + 1) //Array.fill(8)(0)

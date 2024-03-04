@@ -32,13 +32,35 @@ case object SavedCSV
 
 case class ExportNetwork(networkName: String)
 
-class AgentDataSaver(dataSavingPath: String, dataSaver: ActorRef, networkSaver: ActorRef) extends Actor {
+class AgentDataSaver(dataSavingPath: String, dataSaver: ActorRef, networkSaver: ActorRef, numberOfAgents: Int,
+                     network: ActorRef) extends
+  Actor {
   var data = List.empty[AgentData]
   var staticData = List.empty[AgentStaticData]
+  val saveThreshold = 100000 // Every ~5.5 MB save
+
+  val networkName: String = network.path.name
+  val path = s"$dataSavingPath/${networkName}.csv"
+  val staticPath = s"$dataSavingPath/static_${networkName}.csv"
+
+  def exportData(): Unit = {
+    saveToCsv(
+      path,
+      "round,agentName,belief,confidence,opinionClimate,isSpeaking",
+      data,
+      d => s"${d.round},${d.agentName},${d.belief},${d.confidence},${d.opinionClimate},${d.isSpeaking}"
+    )
+    data = List.empty[AgentData]
+  }
 
   def receive: Receive = {
+        // about 55 bytes per save line
     case SendAgentData(round, agentName, belief, confidence, opinionClimate, isSpeaking) =>
       data = AgentData(round, agentName, belief, confidence, opinionClimate, isSpeaking) :: data
+      if (data.length >= saveThreshold) {
+        exportData()
+      }
+
 
     case SendStaticAgentData(agentName, numberOfNeighbors, tol_radius, tol_offset, beliefExpressionThreshold,
     openMindedness) =>
@@ -48,16 +70,7 @@ class AgentDataSaver(dataSavingPath: String, dataSaver: ActorRef, networkSaver: 
 
 
     case ExportCSV =>
-      val networkName = sender().path.name
-      val path = s"$dataSavingPath/${networkName}.csv"
-      val staticPath = s"$dataSavingPath/static_${networkName}.csv"
-
-      saveToCsv(
-        path,
-        "round,agentName,belief,confidence,opinionClimate,isSpeaking",
-        data,
-        d => s"${d.round},${d.agentName},${d.belief},${d.confidence},${d.opinionClimate},${d.isSpeaking}"
-      )
+      exportData()
 
       saveToCsv(
         staticPath,
