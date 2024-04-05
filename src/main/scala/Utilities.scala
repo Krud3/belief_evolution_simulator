@@ -11,6 +11,11 @@ def randomBetween(lower : Double = 0, upper : Double = 1, decimals: Int = 8): Do
   roundToNDecimals(random.nextDouble() * (upper - lower) + lower, decimals)
 }
 
+def randomIntBetween(lower : Int = 0, upper : Int = 1): Int = {
+  val random = new Random()
+  lower + random.nextInt(upper + 1)
+}
+
 def saveToCsv[T](filePath: String, header: String, data: Seq[T], formatData: T => String): Unit = {
   val file = new File(filePath)
   val append = file.exists()

@@ -200,7 +200,7 @@ createAnimatedBeliefConfidencePlot <- function(dt, save_directory, width = 600, 
 
   p <- ggplot(data = dt, aes(x = belief, y = confidence)) +
     geom_point(aes(color = belief, size = numberOfNeighbors, shape = isSpeaking),
-               position = position_jitter(width = 0.01, height = 0), alpha = 0.7) +
+               position = position_jitter(width = 0.001, height = 0), alpha = 0.7) +
     scale_color_gradient(low = "blue", high = "red") +
     scale_size_continuous(range = c(2, 8)) +
     scale_shape_manual(values = c("TRUE" = 16, "FALSE" = 17)) +  # 16: circle, 17: triangle

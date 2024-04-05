@@ -38,7 +38,7 @@ case object Run extends OperationMode
 val mode: String = "Run"
 
 // Messages
-case class CreateNetwork
+case class CreateNetwork  // Monitor -> Network
 (
   numberOfAgents: Int,
   density: Int,
@@ -46,10 +46,10 @@ case class CreateNetwork
   degreeDistributionParameter: Double,
   distribution: Distribution
 )
-case object BuildNetwork
-case object RunNetwork
-case object StartAnalysis
-case object RunBatch
+case object BuildNetwork // Monitor -> network
+case object RunNetwork // Monitor -> network
+case object StartAnalysis // Monitor -> network
+case object RunBatch // Monitor -> self
 
 // Actor
 class Monitor(operationMode: OperationMode, numOfNetworks: Int) extends Actor {
@@ -79,6 +79,7 @@ class Monitor(operationMode: OperationMode, numOfNetworks: Int) extends Actor {
     def receive: Receive = {
         case CreateNetworkBatch(batchSize, batchNumber, numberOfAgents, density, stopThreshold,
         degreeDistributionParameter, distribution) =>
+            totalTimer.start()
             this.batchSize = batchSize
             this.numberOfBatches = batchNumber
             networkInfo = (numberOfAgents, density, stopThreshold, degreeDistributionParameter, distribution)
@@ -152,6 +153,7 @@ class Monitor(operationMode: OperationMode, numOfNetworks: Int) extends Actor {
             
         case AnalysisComplete =>
             analysingTimer.stop(s"Analysis running for")
+            
             totalTimer.stop("Total time elapsed")
 
     }

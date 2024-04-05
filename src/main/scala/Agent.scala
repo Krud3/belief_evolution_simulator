@@ -11,15 +11,16 @@ import scala.math.{log, E}
 // Agent
 
 // Messages
-case class AddToNeighborhood(neighbor: ActorRef)
+case class AddToNeighborhood(neighbor: ActorRef) // Agent -> self
 
-case class RequestOpinion(belief: Double)
+case class RequestOpinion(belief: Double) // self -> Agent
 
-case class SendOpinion(opinion: Int, belief: Double, senderAgent: ActorRef) // 0 = silent, 1 = agree, 2 disagree
+case class SendOpinion(opinion: Int, belief: Double, senderAgent: ActorRef) // Agent -> self
+// 0 = silent, 1 = agree, 2 disagree
 
-case class ConfidenceUpdated(hasNextIter: Boolean)
+case class ConfidenceUpdated(hasNextIter: Boolean) // Agent -> network
 
-case class SendNeighbors(network: Vector[ActorRef], influences: Vector[Double])
+case class SendNeighbors(network: Vector[ActorRef], influences: Vector[Double]) // Agent -> NetworkSaver
 
 // Actor
 class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: ActorRef, networkSaver: ActorRef)
@@ -40,7 +41,7 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
     implicit val timeout: Timeout = Timeout(600.seconds)
 
     // Experimental zone
-    val openMindedness: Int = 100
+    val openMindedness: Int = randomIntBetween(1, 100)
     var curInteractions: Int = 0
     //
 
@@ -57,7 +58,7 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
         Future.sequence(futures).onComplete {
             case Success(opinions) =>
                 var currentSum = 0.0
-                var ownInfluence = 0.0
+                var ownInfluence = influences(influences.size - 1)
                 curInteractions += 1
                 opinions.foreach { opinion =>
                     countsArr(opinion.opinion) += 1
@@ -91,7 +92,7 @@ class Agent(stopThreshold: Double, distribution: Distribution, agentDataSaver: A
     // Currently just places random numbers as the influences
     def generateInfluences(): Unit = {
         val random = new Random
-        val randomNumbers = Vector.fill(neighbors.size)(random.nextDouble())
+        val randomNumbers = Vector.fill(neighbors.size + 1)(random.nextDouble())
         val sum = randomNumbers.sum
         influences = randomNumbers.map(_ / sum)
         hasUpdatedInfluences = true

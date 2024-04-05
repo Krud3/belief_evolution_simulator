@@ -1,4 +1,4 @@
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props, PoisonPill}
 import akka.util.Timeout
 import akka.pattern.ask
 
@@ -10,9 +10,9 @@ import scala.collection.mutable
 // Network
 
 // Messages
-case object BuildingComplete
-case object UpdateConfidence
-case object RunningComplete
+case object BuildingComplete // Network -> Monitor
+case object UpdateConfidence // Network -> Agent
+case object RunningComplete // Network -> Monitor
 
 // Actor
 class Network(numberOfAgents: Int, density: Int, degreeDistributionParameter: Double, stopThreshold: Double,
@@ -42,7 +42,7 @@ class Network(numberOfAgents: Int, density: Int, degreeDistributionParameter: Do
     def createNewAgent(agentName: String): ActorRef = {
         context.actorOf(Props(new Agent(stopThreshold, distribution, agentData, networkSaver)), agentName)
     }
-
+    
     def building: Receive = {
         case BuildNetwork =>
             val fenwickTree = new FenwickTree(numberOfAgents, density, degreeDistributionParameter - 2)

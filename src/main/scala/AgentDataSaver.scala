@@ -1,4 +1,4 @@
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props, PoisonPill}
 
 import java.io.File
 
@@ -79,9 +79,10 @@ class AgentDataSaver(dataSavingPath: String, dataSaver: ActorRef, networkSaver: 
         d => s"${d.agentName},${d.numberOfNeighbors},${d.tolRadius},${d.tolOffset},${d.beliefExpressionThreshold}," +
           s"${d.openMindedness}"
       )
-
+      
       dataSaver ! SavedCSV
       networkSaver ! ExportNetwork(networkName)
+      network ! PoisonPill
 
   }
 }

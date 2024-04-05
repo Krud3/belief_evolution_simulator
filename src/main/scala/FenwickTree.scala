@@ -12,7 +12,6 @@ class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean
     update(i: Int, minScore: Double)
   }
 
-  // Increase value at position `i` by `delta`
   private def update(i: Int, score: Double): Unit = {
     scoresArr(i + 1) += score
     updateTree(i, score)

@@ -58,7 +58,7 @@ case class CreateNetworkBatch
 
 object Mains extends App {
     val numberOfBatches = 10
-    val batchSize = 5
+    val batchSize = 4
     val numOfNetworks = numberOfBatches * batchSize
     val system = ActorSystem("original")
     val monitor = system.actorOf(Props(new Monitor(Run, numOfNetworks)), "Monitor")
@@ -69,8 +69,8 @@ object Mains extends App {
 //            monitor ! CreateNetwork(s"Network${i}_density${j}", 1000, j, 0.001, 2.5, Uniform)
 //        }
 //    }
-    val density = 25
-    val numberOfAgents = 100
+    val density = 1
+    val numberOfAgents = 10000
     monitor ! CreateNetworkBatch(batchSize, numberOfBatches, numberOfAgents, density, 0.001, 2.5, Uniform)
 
 //    for (i <- 1 to numOfNetworks) {
