@@ -19,11 +19,13 @@ class MemoryMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distribu
     
     // Process before receive from parent
     private def receive_before: Receive = {
-        case setInitialState(initialBelief) =>
+        case SetInitialState(initialBelief, toleranceRadius, name) =>
             belief = initialBelief
             prevBelief = belief
             publicBelief = belief
             prevPublicBelief = belief
+            tolRadius = toleranceRadius
+            this.name = name
     }
     
     // Process after receive from parent
@@ -42,7 +44,8 @@ class MemoryMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distribu
                 None, 
                 "majority", 
                 "memory", 
-                "DeGroot"
+                "DeGroot",
+                Option(name).filter(_.nonEmpty)
             ))
         
         case UpdateAgent(forceBeliefUpdate) =>
@@ -64,23 +67,23 @@ class MemoryMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distribu
             fetchBeliefsFromNeighbors { beliefs =>
                 var inFavor = 0
                 var against = 0
-                belief = 0f
-                var countOf = s"Agent: ${self.path.name}, Round $round, Belief: $prevBelief\n"
+//                var countOf = s"Agent: ${self.path.name}, Round $round, Belief: $prevBelief\n"
                 beliefs.foreach {
                     case SendBelief(neighborBelief, neighbor) =>
                         if (isCongruent(neighborBelief)) inFavor += 1
                         else against += 1
-                        belief += neighborBelief * neighbors(neighbor)
+                        belief += (neighborBelief - prevBelief) * neighbors(neighbor)
                 }
-                belief += prevBelief * selfInfluence
                 speaking = inFavor >= against
                 if (speaking) publicBelief = belief
                 
                 // Save the round state
-                snapshotAgentState()
-                network ! AgentUpdated(speaking, belief, belief == prevBelief, true)
+                // snapshotAgentState()
+                network ! AgentUpdated(speaking, publicBelief, belief == prevBelief, true)
             }
         
+        case SnapShotAgent =>
+            snapshotAgentState(true)
     }
     
     override def receive: Receive = receive_before.orElse(super.receive).orElse(receive_after)
@@ -105,7 +108,7 @@ class MemoryMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distribu
     }
     
     private def snapshotAgentState(forceSnapshot: Boolean = false): Unit = {
-        if (prevBelief != belief || forceSnapshot) {
+        if (prevBelief != belief || forceSnapshot || true) {
             val dbSaver = RoundDataRouters.getDBSaver(MemoryMajority)
             dbSaver ! MemoryMajorityRound(
                 id, round, speaking, belief, publicBelief

@@ -56,6 +56,13 @@ object DatabaseManager {
         }
     }
     
+    private def setPreparedStatementString(stmt: PreparedStatement, parameterIndex: Int, value: Option[String]): Unit = {
+        value match {
+            case Some(str) => stmt.setString(parameterIndex, str)
+            case None => stmt.setNull(parameterIndex, java.sql.Types.VARCHAR)
+        }
+    }
+    
     def createRun
     (
       numberOfNetworks: Int,
@@ -139,9 +146,9 @@ object DatabaseManager {
                 """
             INSERT INTO public.agents (
                 id, network_id, number_of_neighbors, tolerance_radius, tol_offset, belief_expression_threshold,
-                cause_of_silence, effect_of_silence, belief_update_method
+                cause_of_silence, effect_of_silence, belief_update_method, name
             ) VALUES (CAST(? AS uuid), ?, ?, ?, ?, ?, CAST(? AS cause_of_silence),
-                      CAST(? AS effect_of_silence), CAST(? AS belief_update_method));
+                      CAST(? AS effect_of_silence), CAST(? AS belief_update_method), ?);
             """
             stmt = conn.prepareStatement(sql)
             
@@ -155,6 +162,7 @@ object DatabaseManager {
                 stmt.setString(7, agent.causeOfSilence)
                 stmt.setString(8, agent.effectOfSilence)
                 stmt.setString(9, agent.beliefUpdateMethod)
+                setPreparedStatementString(stmt, 10, agent.name)
                 stmt.addBatch()
             }
             stmt.executeBatch()
@@ -435,6 +443,8 @@ object DatabaseManager {
     // Cleaning temp tables
     private def cleanTempTableGeneric(tempTableName: String, targetTable: String, columns: Seq[String]): Unit = {
         val columnList = columns.mkString(", ")
+        val disableTriggersSql = s"ALTER TABLE public.$targetTable DISABLE TRIGGER ALL"
+        val enableTriggersSql = s"ALTER TABLE public.$targetTable ENABLE TRIGGER ALL"
         val insertSql =
             s"""
             INSERT INTO public.$targetTable ($columnList)
@@ -450,8 +460,14 @@ object DatabaseManager {
             conn.setAutoCommit(false)
             stmt = conn.createStatement()
             
+            // Disable triggers
+            stmt.execute(disableTriggersSql)
+            
             // Execute INSERT
             stmt.execute(insertSql)
+            
+            // Enable triggers
+            stmt.execute(enableTriggersSql)
             
             // Execute DROP TABLE
             stmt.execute(dropSql)
@@ -600,7 +616,9 @@ object DatabaseManager {
                         id AS agent_id,
                         cause_of_silence,
                         effect_of_silence,
-                        belief_update_method
+                        belief_update_method,
+                        tolerance_radius,
+						tol_offset
                     FROM
                         public.agents
                     WHERE
@@ -626,6 +644,8 @@ object DatabaseManager {
                     at.cause_of_silence,
                     at.effect_of_silence,
                     at.belief_update_method,
+                    at.tolerance_radius,
+					at.tol_offset,
                     n.neighbor_ids,
                     n.neighbor_values
                 FROM
@@ -650,8 +670,10 @@ object DatabaseManager {
                 val neighborIds = Option(resultSet.getString("neighbor_ids")).getOrElse("").split(",").filter(_.nonEmpty)
                 val neighborValues = Option(resultSet.getString("neighbor_values")).getOrElse("").split(",").filter(_.nonEmpty).map(_.toFloat)
                 val neighbors = neighborIds.zip(neighborValues)
+                val toleranceRadius = resultSet.getFloat("tolerance_radius")
+                val toleranceOffset = resultSet.getFloat("tol_offset")
                 
-                val agentInitialState = AgentInitialState(agentId, initialBelief, agentType, neighbors)
+                val agentInitialState = AgentInitialState(agentId, initialBelief, agentType, neighbors, toleranceRadius)
                 
                 agentInitialStates += agentInitialState
             }

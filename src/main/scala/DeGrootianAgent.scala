@@ -13,6 +13,8 @@ import scala.util.{Failure, Success}
 // DeGroot based Agent base
 
 // Messages
+case class SetInitialState(belief: Float, toleranceRadius: Float, name: String) // Network -> Agent
+
 case class AddToNeighborhood(neighbor: ActorRef) // Agent -> self
 
 case class RequestBelief(roundSentFrom: Int) // self -> Agent
@@ -27,13 +29,16 @@ case class SendStaticData(staticData: StaticAgentData) // Agent ->
 
 // Actor
 class DeGrootianAgent extends Actor with Stash {
+    //
+    var name: String = ""
+    
     // Parent
     val network: ActorRef = context.parent
     
     // Belief related
     var belief: Float = -1f
     var prevBelief: Float = -1f
-    val tolRadius: Float = 0.1 //randomBetweenF(0f, 1f)
+    var tolRadius: Float = 0.1 //randomBetweenF(0f, 1f)
     val tolOffset: Float = 0 // randomBetweenF(-tolRadius, tolRadius)
     
     // Neighbors and influence
@@ -88,19 +93,20 @@ class DeGrootianAgent extends Actor with Stash {
         case AddToNeighborhood(neighbor) =>
             neighbors.put(neighbor, 0f)
         
-        case setNeighborInfluence(neighbor, influence) =>
+        case SetNeighborInfluence(neighbor, influence) =>
             neighbors.put(neighbor, influence)
             selfInfluence -= influence
             hasUpdatedInfluences = true
         
-        case setInitialState(initialBelief) =>
+        case SetInitialState(initialBelief, toleranceRadius, name) =>
             belief = initialBelief
             prevBelief = belief
+            tolRadius = toleranceRadius
+            this.name = name
         
         case RequestBelief(roundSentFrom) if roundSentFrom != round =>
             stash()
-        
-        
+            
     }
     
     

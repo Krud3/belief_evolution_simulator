@@ -9,21 +9,20 @@ import java.util.UUID
 // Network
 
 // Messages
-case class setInitialState(belief: Float) // Network -> Agent
+case class BuildCustomNetwork(agents: Array[AgentInitialState]) // Monitor -> network
+case object BuildNetwork // Monitor -> network
+case class BuildNetworkByGroups(groups: Int)
+case object RunNetwork // Monitor -> network
+case object RunFirstRound // AgentStaticDataSaver -> Network
 
-case class setNeighborInfluence(neighbor: ActorRef, influence: Float) // Network -> Agent
 
-case class BuildingComplete(id: UUID) // Network -> Monitor
-
+case class SetNeighborInfluence(neighbor: ActorRef, influence: Float) // Network -> Agent
 case class UpdateAgent(forceBeliefUpdate: Boolean) // Network -> Agent
-
-case class RunningComplete(id: UUID) // Network -> Monitor
-
 case object SaveAgentStaticData // Network -> Agent
-
 case object SaveRemainingData // Network -> AgentRoundDataSaver
+case object SnapShotAgent // Network -> Agent
 
-case object RunRound //self -> self
+case object AgentFinished // Agent -> Network
 
 // Actor
 class Network(networkId: UUID, numberOfAgents: Int, density: Int = -1, degreeDistributionParameter: Float = -0.1f,
@@ -56,6 +55,7 @@ class Network(networkId: UUID, numberOfAgents: Int, density: Int = -1, degreeDis
     
     def receive: Receive = building
     
+    // Building state
     private def building: Receive = {
         case BuildCustomNetwork(agents) =>
             val mask: Array[(ActorRef, String)] = Array.ofDim(agents.length)
@@ -67,14 +67,14 @@ class Network(networkId: UUID, numberOfAgents: Int, density: Int = -1, degreeDis
                 
                 mask(i) = (newAgent, agents(i).name)
                 //println(s"${agents(i).name}, ${agents(i).neighbors.mkString("Array(", ", ", ")")}")
-                newAgent ! setInitialState(agents(i).initialBelief)
+                newAgent ! SetInitialState(agents(i).initialBelief, agents(i).tolerance, agents(i).name)
             }
        
             for (i <- agents.indices) {
                 agents(i).neighbors.foreach(
                     (neighborName, neighborInfluence) =>
                         val neighborActor: ActorRef = mask.find(_._2 == neighborName).get._1
-                        this.agents(i) ! setNeighborInfluence(neighborActor, neighborInfluence)
+                        this.agents(i) ! SetNeighborInfluence(neighborActor, neighborInfluence)
                 )
             }
             
@@ -114,53 +114,65 @@ class Network(networkId: UUID, numberOfAgents: Int, density: Int = -1, degreeDis
             }
             context.become(running)
             monitor ! BuildingComplete(networkId)
+        
+        case BuildNetworkByGroups(numberOfGroups) =>
+        
     }
     
+    
+    // Running State
     private def running: Receive = {
         case RunNetwork =>
             agents.foreach { agent => agent ! SaveAgentStaticData }
         
-        case RunRound =>
-            val forceUpdate = shouldUpdate
-            shouldUpdate = false
-            shouldContinue = false
-            pendingResponses = agents.length
-            agents.foreach { agent => agent ! UpdateAgent(!forceUpdate) }
-        
+        case RunFirstRound =>
+            runRound()
+            
         case AgentUpdated(hasNextIter, belief, isStable, updatedBelief) =>
             pendingResponses -= 1
             if (hasNextIter) shouldUpdate = true
             if (!isStable) shouldContinue = true
-            
+            //println(s"${sender().path.name}, Round:$round, Speaking:$hasNextIter, ")
             maxBelief = math.max(maxBelief, belief)
             minBelief = math.min(minBelief, belief)
             if (pendingResponses == 0) {
                 // if (round % 50 == 0) println(s"Round $round")
                 round += 1
-                
+               
                 if ((maxBelief - minBelief) < stopThreshold) {
-                    context.become(analyzing)
                     monitor ! RunningComplete(networkId)
                     DatabaseManager.updateNetworkFinalRound(networkId, round, true)
+                    agents.foreach { agent => agent ! SnapShotAgent }
+                    pendingResponses = agents.length
                 }
                 else if (round == iterationLimit || (!shouldContinue && updatedBelief)) {
-                    context.become(analyzing)
                     monitor ! RunningComplete(networkId)
                     DatabaseManager.updateNetworkFinalRound(networkId, round, false)
+                    agents.foreach { agent => agent ! SnapShotAgent }
+                    pendingResponses = agents.length
                 } else {
-                    self ! RunRound
+                    runRound()
                     minBelief = 2.0
                     maxBelief = -1.0
                 }
             }
         
+        case AgentFinished =>
+            pendingResponses -= 1
+            if (pendingResponses == 0) {
+                context.stop(self)
+            }
     }
     
-    private def analyzing: Receive = {
-        case StartAnalysis =>
-            self ! PoisonPill
+    private def runRound(): Unit = {
+        val forceUpdate = shouldUpdate
+        agents.foreach { agent => agent ! UpdateAgent(!forceUpdate) }
+        shouldUpdate = false
+        shouldContinue = false
+        pendingResponses = agents.length
         
     }
+    
     
     // Functions:
     private def createNewAgent(agentId: UUID, agentName: String, agentType: AgentType): ActorRef = {

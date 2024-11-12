@@ -28,10 +28,12 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
     
     // Process before receive from parent
     private def receive_before: Receive = {
-        case setInitialState(initialBelief) =>
+        case SetInitialState(initialBelief, toleranceRadius, name) =>
             belief = initialBelief
             prevBelief = belief
             publicBelief = belief
+            tolRadius = toleranceRadius
+            this.name = name
     }
     
     // Process after receive from parent
@@ -50,7 +52,8 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
                 Some(openMindedness), 
                 "confidence", 
                 "memory", 
-                "DeGroot"
+                "DeGroot",
+                Option(name).filter(_.nonEmpty)
             ))
         
         case UpdateAgent(forceBeliefUpdate) =>
@@ -73,15 +76,14 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
             fetchBeliefsFromNeighbors { beliefs =>
                 var inFavor = 0
                 var against = 0
-                belief = 0f
+
                 beliefs.foreach {
                     case SendBelief(neighborBelief, neighbor) =>
                         if (isCongruent(neighborBelief)) inFavor += 1
                         else against += 1
-                        belief += neighborBelief * neighbors(neighbor)
+                        belief += (neighborBelief - prevBelief) * neighbors(neighbor)
                 }
                 
-                belief += prevBelief * selfInfluence
                 curInteractions += 1
                 if (curInteractions == openMindedness || forceBeliefUpdate) 
                     curInteractions = 0
@@ -99,11 +101,13 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
                 
                 val aboveThreshold = math.abs(confidence - prevConfidence) >= stopThreshold || round == 1
                 // Save the round state
-                snapshotAgentState()
+                // snapshotAgentState()
                 network ! AgentUpdated(aboveThreshold, belief, belief == prevBelief,
                     curInteractions == openMindedness || forceBeliefUpdate)
             }
         
+        case SnapShotAgent =>
+            snapshotAgentState(true)
     }
     
     override def receive: Receive = receive_before.orElse(super.receive).orElse(receive_after)
@@ -114,19 +118,9 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
                 belief = randomBetweenF()
                 publicBelief = belief
                 
-                def reverseConfidence(c: Float): Float = {
-                    if (c == 1.0) {
-                        37.42994775f
-                    } else {
-                        -math.log(-((c - 1) / (c + 1))).toFloat
-                    }
-                }
-                
                 beliefExpressionThreshold = Random.nextFloat()
-                confidence = Random.nextFloat()
+                confidence = beliefExpressionThreshold
                 confidenceUnbounded = reverseConfidence(confidence)
-            //                confidenceUnbounded = Random.nextFloat()
-            //                confidence = (2 / (1 + Math.exp(-confidenceUnbounded).toFloat)) - 1
             
             case Normal(mean, std) =>
             // ToDo Implement initialization for the Normal distribution
@@ -136,6 +130,16 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
             
             case BiModal(peak1, peak2, lower, upper) =>
             
+            case CustomDistribution =>
+                val rands = Array(
+                    0.4f,
+                    0.4f,
+                    0.4f
+                )
+                beliefExpressionThreshold = Random.nextFloat()
+                confidence = beliefExpressionThreshold
+                confidenceUnbounded = reverseConfidence(confidence)
+                
             case _ =>
             
         }
@@ -144,15 +148,16 @@ class MemoryConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distri
     private def snapshotAgentState(forceSnapshot: Boolean = false): Unit = {
         var localBelief: Option[Float] = Some(belief)
         var localPublicBelief: Option[Float] = Some(publicBelief)
-        if (belief == prevBelief || !forceSnapshot) localBelief = None
-        if (publicBelief == prevPublicBelief || !forceSnapshot) localPublicBelief = None
-        if (localBelief.isEmpty & (confidence == prevConfidence)) return
-        
-        val dbSaver = RoundDataRouters.getDBSaver(MemoryConfidence)
-        dbSaver ! MemoryConfidenceRound(
-            id, round, confidence >= beliefExpressionThreshold, confidence, perceivedOpinionClimate,
-            localBelief, localPublicBelief
-        )
+//        if (belief == prevBelief || !forceSnapshot) localBelief = None
+//        if (publicBelief == prevPublicBelief || !forceSnapshot) localPublicBelief = None
+//        if (localBelief.isEmpty & (confidence == prevConfidence)) return
+        if (belief != prevBelief || forceSnapshot) {
+            val dbSaver = RoundDataRouters.getDBSaver(MemoryConfidence)
+            dbSaver ! MemoryConfidenceRound(
+                id, round, confidence >= beliefExpressionThreshold, confidence, perceivedOpinionClimate,
+                localBelief, localPublicBelief
+            )
+        }
     }
     
 }

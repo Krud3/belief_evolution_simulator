@@ -1,4 +1,4 @@
-import akka.actor.{Actor, ActorRef}
+import akka.actor.Actor
 
 import java.util.UUID
 
@@ -13,7 +13,8 @@ case class StaticAgentData
   openMindedness: Option[Int],
   causeOfSilence: String,
   effectOfSilence: String,
-  beliefUpdateMethod: String
+  beliefUpdateMethod: String,
+  name: Option[String] = None
 )
 case object AgentsSaved
 
@@ -28,8 +29,8 @@ class AgentStaticDataSaver(numberOfAgents: Int) extends Actor {
             if (agentsSaved == numberOfAgents) {
                 DatabaseManager.insertAgentsBatch(this.staticAgentData)
                 this.staticAgentData = Array.ofDim[StaticAgentData](0)
-                context.parent ! RunRound
+                context.parent ! RunFirstRound
             }
-            
+        
     }
 }

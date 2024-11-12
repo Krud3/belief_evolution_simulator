@@ -19,8 +19,11 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
     var prevConfidence: Float = -1f
     
     // Belief update
-    val openMindedness: Int = 50 // randomIntBetween(1, 100)
+    val openMindedness: Int = 1 // randomIntBetween(1, 100)
     var curInteractions: Int = 0
+    
+    // update related
+    var snapshotAll = false
     
     override def receive: Receive = super.receive.orElse {
         case RequestBelief(roundSentFrom) if prevConfidence >= beliefExpressionThreshold =>
@@ -32,7 +35,7 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
         case SaveAgentStaticData =>
             staticAgentDataSaver ! SendStaticData(StaticAgentData(
                 id, networkId, neighbors.size, tolRadius, tolOffset, Some(beliefExpressionThreshold),
-                Some(openMindedness), "confidence", "memory-less", "DeGroot"
+                Some(openMindedness), "confidence", "memory-less", "DeGroot", Option(name).filter(_.nonEmpty)
             ))
         
         case UpdateAgent(forceBeliefUpdate) =>
@@ -55,7 +58,6 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
                 var inFavor = 0
                 var against = 0
                 var selfInfluenceSummed = selfInfluence
-                belief = 0f
                 beliefs.foreach {
                     case SendBelief(neighborBelief, neighbor) if neighborBelief == -1f =>
                         selfInfluenceSummed += neighbors(neighbor)
@@ -63,10 +65,9 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
                     case SendBelief(neighborBelief, neighbor) =>
                         if (isCongruent(neighborBelief)) inFavor += 1
                         else against += 1
-                        belief += neighborBelief * neighbors(neighbor)
+                        belief += (neighborBelief - prevBelief) * neighbors(neighbor)
                 }
                 
-                belief += prevBelief * selfInfluenceSummed
                 curInteractions += 1
                 if (curInteractions == openMindedness || forceBeliefUpdate) curInteractions = 0
                 else belief = prevBelief
@@ -80,10 +81,13 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
                 
                 val aboveThreshold = math.abs(confidence - prevConfidence) >= stopThreshold || round == 1
                 // Save the round state
-                snapshotAgentState(selfInfluenceSummed)
+                // snapshotAgentState(selfInfluenceSummed)
                 network ! AgentUpdated(aboveThreshold, belief, belief == prevBelief,
                     curInteractions == openMindedness || forceBeliefUpdate)
             }
+        
+        case SnapShotAgent =>
+            snapshotAgentState(forceSnapshot = true)
         
     }
     
@@ -91,20 +95,9 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
         distribution match {
             case Uniform =>
                 belief = randomBetweenF()
-                
-                def reverseConfidence(c: Float): Float = {
-                    if (c == 1.0) {
-                        37.42994775f
-                    } else {
-                        -math.log(-((c - 1) / (c + 1))).toFloat
-                    }
-                }
-                
                 beliefExpressionThreshold = Random.nextFloat()
-                confidence = Random.nextFloat()
+                confidence = beliefExpressionThreshold
                 confidenceUnbounded = reverseConfidence(confidence)
-//                confidenceUnbounded = Random.nextFloat()
-//                confidence = (2 / (1 + Math.exp(-confidenceUnbounded).toFloat)) - 1
             
             case Normal(mean, std) =>
             // ToDo Implement initialization for the Normal distribution
@@ -114,6 +107,17 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
             
             case BiModal(peak1, peak2, lower, upper) =>
             
+            case CustomDistribution =>
+                val rands = Array(
+                    0.4f,
+                    0.4f,
+                    0.4f
+                )
+                beliefExpressionThreshold = rands(Random.nextInt(rands.length))
+                confidence = beliefExpressionThreshold
+                confidenceUnbounded = reverseConfidence(confidence)
+                snapshotAll = true
+                
             case _ =>
             
         }
@@ -121,14 +125,15 @@ class MemLessConfidenceAgent(id: UUID, stopThreshold: Float, distribution: Distr
     
     private def snapshotAgentState(selfInfluence: Float = selfInfluence, forceSnapshot: Boolean = false): Unit = {
         var localBelief: Option[Float] = Some(belief)
-        if (belief == prevBelief || !forceSnapshot) localBelief = None
-        if (localBelief.isEmpty & (confidence == prevConfidence)) return
-        
-        val dbSaver = RoundDataRouters.getDBSaver(MemoryLessConfidence)
-        dbSaver ! MemoryLessConfidenceRound(
-            id, round, confidence >= beliefExpressionThreshold, confidence, perceivedOpinionClimate,
-            selfInfluence, localBelief
-        )
+        // if (belief == prevBelief || !forceSnapshot) return //localBelief = None
+        //if (localBelief.isEmpty & (confidence == prevConfidence)) return
+        if (prevBelief != belief || forceSnapshot || snapshotAll) {
+            val dbSaver = RoundDataRouters.getDBSaver(MemoryLessConfidence)
+            dbSaver ! MemoryLessConfidenceRound(
+                id, round, confidence >= beliefExpressionThreshold, confidence, perceivedOpinionClimate,
+                selfInfluence, localBelief
+            )
+        }
     }
     
 }

@@ -14,6 +14,7 @@ class MemLessMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distrib
     // Belief update
     var speaking: Boolean = true
     var prevSpeaking: Boolean = true
+    var timesStable: Int = 0
     
     override def receive: Receive = super.receive.orElse {
         case RequestBelief(roundSentFrom) if prevSpeaking =>
@@ -33,7 +34,8 @@ class MemLessMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distrib
                 None, 
                 "confidence", 
                 "memory-less", 
-                "DeGroot"
+                "DeGroot",
+                Option(name).filter(_.nonEmpty)
             ))
         
         case UpdateAgent(forceBeliefUpdate) =>
@@ -56,7 +58,6 @@ class MemLessMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distrib
                 var inFavor = 0
                 var against = 0
                 var selfInfluenceSummed = selfInfluence
-                belief = 0f
                 beliefs.foreach {
                     case SendBelief(neighborBelief, neighbor) if neighborBelief == -1f =>
                         selfInfluenceSummed += neighbors(neighbor)
@@ -64,17 +65,24 @@ class MemLessMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distrib
                     case SendBelief(neighborBelief, neighbor) =>
                         if (isCongruent(neighborBelief)) inFavor += 1
                         else against += 1
-                        belief += neighborBelief * neighbors(neighbor)
+                        belief += (neighborBelief - prevBelief) * neighbors(neighbor)
                 }
                 
-                belief += prevBelief * selfInfluenceSummed
                 speaking = inFavor >= against
-                
+                // println(s"$name, Round:$round, Prev:$prevBelief, Belief:$belief, Speaking:$speaking")
                 // Save the round state
-                snapshotAgentState(selfInfluenceSummed)
-                network ! AgentUpdated(speaking, belief, belief == prevBelief, true)
+                // snapshotAgentState(selfInfluenceSummed)
+                if (belief == prevBelief) {
+                    timesStable += 1
+                } else {
+                    timesStable = 0
+                }
+                
+                network ! AgentUpdated(speaking, belief, belief == prevBelief & timesStable > 1, true)
             }
         
+        case SnapShotAgent =>
+            snapshotAgentState(selfInfluence, forceSnapshot = true)    
     }
     
     override def preStart(): Unit = {
@@ -95,8 +103,12 @@ class MemLessMajorityAgent(id: UUID, stopThreshold: Float, distribution: Distrib
         }
     }
     
+    private def updateBeliefs(): Unit = {
+        
+    }
+    
     private def snapshotAgentState(selfInfluence: Float = selfInfluence, forceSnapshot: Boolean = false): Unit = {
-        if (prevBelief != belief || forceSnapshot) {
+        if (prevBelief != belief || forceSnapshot || prevSpeaking != speaking) {
             val dbSaver = RoundDataRouters.getDBSaver(MemoryLessMajority)
             dbSaver ! MemoryLessMajorityRound(
                 id, round, speaking, selfInfluence, belief

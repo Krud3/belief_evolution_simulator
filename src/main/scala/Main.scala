@@ -87,11 +87,11 @@ case class AgentInitialState
   name: String,
   initialBelief: Float,
   agentType: AgentType,
-  neighbors: Array[(String, Float)]
+  neighbors: Array[(String, Float)],
+  tolerance: Float
 )
 
-def normalizeByWeightedSum(arr: Array[(String, Float)], selfInfluence: Float = 0f):
-Array[(String, Float)] = {
+def normalizeByWeightedSum(arr: Array[(String, Float)], selfInfluence: Float = 0f): Array[(String, Float)] = {
     if (arr.isEmpty) return arr
     
     val totalSum = arr.map(_._2).sum + selfInfluence
@@ -114,18 +114,19 @@ AddSpecificNetwork = {
 }
 
 def simulateFromCustomExample(beliefs: Array[Float], selfInfluence: Array[Float] = Array.emptyFloatArray,
-                              influences: Array[Array[(String, Float)]], agentType: AgentType,
-                              iterationLimit: Int, name: String):
-AddSpecificNetwork = {
+                              influences: Array[Array[(String, Float)]], agentType: AgentType, iterationLimit: Int,
+                              name: String, tolerances: Array[Float] = Array.empty[Float]): AddSpecificNetwork = {
     val agents: Array[AgentInitialState] = Array.ofDim(beliefs.length)
     
     for (i <- beliefs.indices) {
         agents(i) = AgentInitialState(
-            name = s"Agent${i+1}",
+            name = s"Agent${i + 1}",
             initialBelief = beliefs(i),
             agentType = agentType,
-            neighbors = if (selfInfluence.isEmpty) influences(i) else
-                normalizeByWeightedSum(influences(i), selfInfluence(i))
+            if (selfInfluence.isEmpty) influences(i)
+            else normalizeByWeightedSum(influences(i), selfInfluence(i)),
+            if (tolerances.nonEmpty) tolerances(i)
+            else 0.1, // Default tolerance value
         )
     }
     
@@ -144,30 +145,34 @@ class GreeterActor(name: String) extends Actor {
     }
 }
 
+object globalTimer {
+    val timer: CustomTimer = new CustomTimer()
+}
+
 object Mains extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
-    val density = 1
-    val numberOfAgents = 25
-    val numberOfNetworks = 1
+    val density = 3
+    val numberOfAgents = 1000
+    val numberOfNetworks = 100
     
-    
-    monitor ! AddNetworks(
-        numberOfNetworks,
-        numberOfAgents,
-        density,
-        2.5f,
-        0.001,
-        Uniform,
-        1500,
-        Map(
-            MemoryLessConfidence -> 0,
-            MemoryConfidence -> 0,
-            MemoryLessMajority -> 0,
-            MemoryMajority -> numberOfAgents
+    globalTimer.timer.start()
+        monitor ! AddNetworks(
+            numberOfNetworks,
+            numberOfAgents,
+            density,
+            2.5f,
+            0.001,
+            Uniform,
+            1000,
+            Map(
+                MemoryLessConfidence -> 0,
+                MemoryConfidence -> 0,
+                MemoryLessMajority -> 0,
+                MemoryMajority -> numberOfAgents
+            )
         )
-    )
     
     
     val msg = simulateFromPreviousNetwork(
@@ -176,7 +181,7 @@ object Mains extends App {
         1500,
         "ReDo_from_memory"
     )
-
+    
     //println(msg.agents.foreach(agent => println(agent.neighbors.mkString(s"${agent.name} Array(", ", ", ")"))))
     //monitor ! msg
     
@@ -198,21 +203,196 @@ object Mains extends App {
     )
     
     //monitor ! vax
+    //
+    // Minimum memory majority disensus
+    //    val vaxxed = simulateFromCustomExample(
+    //        beliefs = Array(1.0f, 0.0f, 0.5f),
+    //        influences = Array(
+    //            Array(("Agent2", 0.45f), ("Agent3", 0.45f)),
+    //            Array(("Agent1", 0.45f), ("Agent3", 0.45f)),
+    //            Array(("Agent1", 0.4f), ("Agent2", 0.4f)),
+    //        ),
+    //        agentType = MemoryMajority,
+    //        iterationLimit = 1000,
+    //        name = "MM_test"
+    //    )
     
-    val vaxxed = simulateFromCustomExample(
-        beliefs = Array(1.0f, 0.5f, 0.0f),
+    // Memory less clique dissensus
+    val ex_2 = simulateFromCustomExample(
+        beliefs = Array(1.0f, 0.0f, 0.5f),
         influences = Array(
-            Array(("Agent2", 0.01f)),
-            Array(("Agent1", 0.01f), ("Agent3", 0.01f)),
-            Array(("Agent2", 0.01f)),
+            Array(("Agent2", 0.1f), ("Agent3", 0.1f)),
+            Array(("Agent1", 0.1f), ("Agent3", 0.1f)),
+            Array(("Agent1", 0.1f), ("Agent2", 0.1f)),
         ),
-        agentType = MemoryMajority,
-        iterationLimit = 5000,
-        name = "memory_on_off"
+        agentType = MemoryConfidence,
+        iterationLimit = 1000,
+        name = "MM_test"
     )
     
-//    monitor ! vaxxed
-
+    // Memory less clique dissensus convergence to same private value but not same public value
+    val ex_3 = simulateFromCustomExample(
+        beliefs = Array(1.0f, 1.0f, 0.5f, 0.0f, 0.0f),
+        influences = Array(
+            Array(("Agent2", 0.1f), ("Agent3", 0.1f), ("Agent4", 0.2f), ("Agent5", 0.2f)),
+            Array(("Agent1", 0.1f), ("Agent3", 0.1f), ("Agent4", 0.2f), ("Agent5", 0.2f)),
+            Array(("Agent1", 0.1f), ("Agent2", 0.1f), ("Agent4", 0.1f), ("Agent5", 0.1f)),
+            Array(("Agent1", 0.2f), ("Agent2", 0.2f), ("Agent3", 0.1f), ("Agent5", 0.1f)),
+            Array(("Agent1", 0.2f), ("Agent2", 0.2f), ("Agent3", 0.1f), ("Agent4", 0.1f)),
+        ),
+        agentType = MemoryConfidence,
+        iterationLimit = 1000,
+        name = "MM_test"
+    )
+    
+    val m_d_two_convergence = simulateFromCustomExample(
+        beliefs = Array(1.0f, 0.9f, 0.1f, 0.0f),
+        influences = Array(
+            Array(("Agent2", 0.6f), ("Agent3", 0.1f), ("Agent4", 0.1f)),
+            Array(("Agent1", 0.4f), ("Agent3", 0.1f), ("Agent4", 0.1f)),
+            Array(("Agent1", 0.1f), ("Agent2", 0.1f), ("Agent4", 0.4f)),
+            Array(("Agent1", 0.1f), ("Agent2", 0.1f), ("Agent3", 0.6f)),
+        ),
+        agentType = MemoryMajority,
+        iterationLimit = 1000,
+        name = "MM_test",
+        tolerances = Array(0.05f, 0.05f, 0.05f, 0.05f)
+    )
+    
+    var outer_weak = 0.21f
+    var outer_strong = 0.15f
+    var inner_weak = 0.4f
+    var inner_strong = 0.32f
+    val m_d_private_consensus = simulateFromCustomExample(
+        beliefs = Array(1.0f, 0.9f, 0.1f, 0.0f),
+        influences = Array(
+            Array(("Agent2", inner_weak), ("Agent3", outer_weak), ("Agent4", outer_strong)),
+            Array(("Agent1", inner_strong), ("Agent3", outer_weak), ("Agent4", outer_strong)),
+            Array(("Agent1", outer_strong), ("Agent2", outer_weak), ("Agent4", inner_strong)),
+            Array(("Agent1", outer_strong), ("Agent2", outer_weak), ("Agent3", inner_weak)),
+        ),
+        agentType = MemoryMajority,
+        iterationLimit = 1000,
+        name = "MM_test",
+        tolerances = Array(0.2f, 0.1f, 0.05f, 0.15f)
+    )
+    
+    outer_weak = 0.3f
+    outer_strong = 0.4f
+    inner_weak = 0.2f
+    inner_strong = 0.35f
+    val m_d_private_dissensus = simulateFromCustomExample(
+        beliefs = Array(1.0f, 0.9f, 0.1f, 0.0f),
+        influences = Array(
+            Array(("Agent2", inner_weak), ("Agent3", outer_weak), ("Agent4", outer_strong)),
+            Array(("Agent1", inner_strong), ("Agent3", outer_weak), ("Agent4", outer_strong)),
+            Array(("Agent1", outer_strong), ("Agent2", outer_weak), ("Agent4", inner_strong)),
+            Array(("Agent1", outer_strong), ("Agent2", outer_weak), ("Agent3", inner_weak)),
+        ),
+        agentType = MemoryMajority,
+        iterationLimit = 1000,
+        name = "m_d_private",
+        tolerances = Array(0.05f, 0.05f, 0.05f, 0.05f)
+    )
+//    monitor ! m_d_private_dissensus
+    
+    // Multiple echo chambers
+    val ex_5 = simulateFromCustomExample(
+        beliefs = Array(
+            0.1f, 0.25f, 0.0f,
+            0.3f, 0.25f, 0.6f,
+            0.95f, 0.8f, 1.0f,
+            0.5f
+        ),
+        influences = Array(
+            Array(("Agent2", 0.25f), ("Agent3", 0.25f)),
+            Array(("Agent1", 0.25f), ("Agent3", 0.25f)),
+            Array(("Agent1", 0.25f), ("Agent2", 0.25f), ("Agent10", 0.1f)),
+            
+            Array(("Agent5", 0.25f), ("Agent6", 0.25f)),
+            Array(("Agent4", 0.25f), ("Agent6", 0.25f)),
+            Array(("Agent4", 0.25f), ("Agent5", 0.25f), ("Agent10", 0.1f)),
+            
+            Array(("Agent8", 0.25f), ("Agent9", 0.25f)),
+            Array(("Agent7", 0.25f), ("Agent9", 0.25f)),
+            Array(("Agent7", 0.25f), ("Agent8", 0.25f), ("Agent10", 0.1f)),
+            
+            Array(("Agent3", 0.25f), ("Agent6", 0.25f), ("Agent9", 0.25f)),
+        ),
+        agentType = MemoryLessMajority,
+        iterationLimit = 1000,
+        name = "MLM_test",
+        tolerances = Array(
+            0.25f, 0.25f, 0.25f,
+            0.25f, 0.25f, 0.25f,
+            0.25f, 0.25f, 0.25f,
+            0.05f
+        )
+    )
+    
+    val pizza_topping = simulateFromCustomExample(
+        beliefs = Array(1.0f, 0.8f, 0.5f, 0.2f, 0.0f),
+        influences = Array(
+            Array(("Agent2", 0.4f), ("Agent3", 0.1f)),
+            Array(("Agent1", 0.4f), ("Agent3", 0.1f)),
+            Array(("Agent1", 0.2f), ("Agent2", 0.2f), ("Agent4", 0.2f), ("Agent5", 0.2f)),
+            Array(("Agent3", 0.1f), ("Agent5", 0.4f)),
+            Array(("Agent3", 0.1f), ("Agent4", 0.4f)),
+        ),
+        agentType = MemoryLessMajority,
+        iterationLimit = 1000,
+        name = "pizza_topping",
+        tolerances = Array(
+            0.2f, 0.15f,
+            0.1f,
+            0.15f, 0.2f
+        )
+    )
+    //    monitor ! pizza_topping
+    
+    // Multiple echo chambers
+    val sop_example = simulateFromCustomExample(
+        beliefs = Array(
+            0.1f, 0.2f, 0.15f,
+            1.0f, 0.85f,
+            0.25f, 0.3f, 0.05f
+        ),
+        influences = Array(
+            Array(("Agent4", 0.2f)),
+            Array(("Agent4", 0.2f)),
+            Array(("Agent4", 0.2f)),
+            
+            Array(("Agent1", 0.05f), ("Agent2", 0.1f), ("Agent3", 0.1f), ("Agent5", 0.25f)),
+            Array(("Agent4", 0.5f), ("Agent6", 0.1f), ("Agent7", 0.1f), ("Agent8", 0.05f)),
+            
+            Array(("Agent5", 0.2f)),
+            Array(("Agent5", 0.2f)),
+            Array(("Agent5", 0.2f)),
+        
+        ),
+        agentType = MemoryLessMajority,
+        iterationLimit = 1000,
+        name = "sop_example",
+        tolerances = Array(
+            0.1f, 0.05f, 0.1f,
+            0.85f, 0.6f,
+            0.05f, 0.1f, 0.05f,
+        )
+    )
+    
+    val instability_example = simulateFromCustomExample(
+        beliefs = Array(1.0f, 0.0f),
+        influences = Array(
+            Array(("Agent2", 1f)),
+            Array(("Agent1", 1f)),
+        ),
+        agentType = MemoryLessMajority,
+        iterationLimit = 1000,
+        name = "divergence",
+        tolerances = Array(1.0f, 1.0f)
+    )
+    
+    
     val runtime = Runtime.getRuntime
     val maxMemory = runtime.maxMemory() / (1024 * 1024)
 }

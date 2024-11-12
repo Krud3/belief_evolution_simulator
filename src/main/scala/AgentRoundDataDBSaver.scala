@@ -2,6 +2,7 @@ import akka.actor.{Actor, ActorRef, Props}
 
 import scala.collection.mutable.ArrayBuffer
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 
 case class MemoryConfidenceRound
@@ -102,6 +103,7 @@ class DBCleaner extends Actor {
             timer.start()
             cleanupFunction(tableName)
             timer.stop(s"Finished cleaning $tableName")
+            globalTimer.timer.stop("Total run time", TimeUnit.MINUTES)
     }
 }
 
