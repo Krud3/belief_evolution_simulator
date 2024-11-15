@@ -153,26 +153,46 @@ object Mains extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
-    val density = 3
-    val numberOfAgents = 1000
-    val numberOfNetworks = 100
+    val density = 10
+    val numberOfAgents = 10000
+    val numberOfNetworks = 500
     
     globalTimer.timer.start()
+    var i = 9
+    while (i <= density) {
         monitor ! AddNetworks(
             numberOfNetworks,
             numberOfAgents,
-            density,
+            i,
             2.5f,
             0.001,
             Uniform,
             1000,
             Map(
                 MemoryLessConfidence -> 0,
-                MemoryConfidence -> 0,
+                MemoryConfidence -> numberOfAgents,
                 MemoryLessMajority -> 0,
-                MemoryMajority -> numberOfAgents
+                MemoryMajority -> 0
             )
         )
+        
+        monitor ! AddNetworks(
+            numberOfNetworks,
+            numberOfAgents,
+            i,
+            2.5f,
+            0.001,
+            Uniform,
+            1000,
+            Map(
+                MemoryLessConfidence -> numberOfAgents,
+                MemoryConfidence -> 0,
+                MemoryLessMajority -> 0,
+                MemoryMajority -> 0
+            )
+        )
+        i += 1
+    }
     
     
     val msg = simulateFromPreviousNetwork(
@@ -379,6 +399,7 @@ object Mains extends App {
             0.05f, 0.1f, 0.05f,
         )
     )
+//    monitor ! sop_example
     
     val instability_example = simulateFromCustomExample(
         beliefs = Array(1.0f, 0.0f),

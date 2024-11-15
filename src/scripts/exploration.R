@@ -243,7 +243,7 @@ p_publication <- p_publication +
 print(p_publication)
 
 # ggsave("publication.svg", plot = p_publication, width = 15, height = 10, dpi = 300)
-ggsave("publication2.svg", plot = p_publication, width = 10, height = 6.5, units = "in", dpi = 300)
+ggsave("testing.svg", plot = p_publication, width = 16, height = 10, units = "cm", dpi = 300)
 
 
 # p_publication <- ggplot(melted_data,

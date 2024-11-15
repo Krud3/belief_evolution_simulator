@@ -25,7 +25,7 @@ class Run private extends Actor {
     val runningTimers = new CustomMultiTimer
     
     // Limits
-    var agentLimit = 1000
+    var agentLimit = 100000
     
     // Batches
     var batches = 0
@@ -126,7 +126,7 @@ class Run private extends Actor {
             networksBuilt += 1
             if (networksBuilt == 1) globalTimers.start("Running")
             
-            DatabaseManager.updateTimeField(Right(networkId), buildingTimers.stop(networkName), "networks","build_time")
+            DatabaseManager.updateTimeField(Right(networkId), buildingTimers.stop(networkName, msg = " building"), "networks","build_time")
             if (networksBuilt == networks.size)
                 DatabaseManager.updateTimeField(Left(runId.get), globalTimers.stop("Building"), "runs", "build_time")
             
@@ -137,12 +137,13 @@ class Run private extends Actor {
             val network = sender()
             val networkName = network.path.name
             numberOfNetworksFinished += 1
-            DatabaseManager.updateTimeField(Right(networkId), runningTimers.stop(networkName), "networks", "run_time")
+            DatabaseManager.updateTimeField(Right(networkId), runningTimers.stop(networkName, msg = " running"), "networks", "run_time")
             if (numberOfNetworksFinished == numberOfNetworks) {
                 DatabaseManager.updateTimeField(Left(runId.get), globalTimers.stop("Running"), "runs", "run_time")
                 println("Saving to DB...")
                 RoundDataRouters.saveRemainingData()
                 context.parent ! RunComplete
+                context.stop(self)
             } else if (numberOfNetworksFinished % networksPerBatch == 0) {
                 calculateBatches(numberOfNetworks, numberOfAgents)
                 buildNetworkBatch()

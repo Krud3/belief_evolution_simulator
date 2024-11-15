@@ -1,4 +1,4 @@
-import akka.actor.{Actor, ActorRef, PoisonPill, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.util.Timeout
 
 import scala.concurrent.duration.*
@@ -16,11 +16,9 @@ case object RunNetwork // Monitor -> network
 case object RunFirstRound // AgentStaticDataSaver -> Network
 
 
-case class SetNeighborInfluence(neighbor: ActorRef, influence: Float) // Network -> Agent
-case class UpdateAgent(forceBeliefUpdate: Boolean) // Network -> Agent
-case object SaveAgentStaticData // Network -> Agent
+case class AgentUpdated(hasNextIter: Boolean, belief: Float, isStable: Boolean, updatedBelief: Boolean) // Agent -> network
 case object SaveRemainingData // Network -> AgentRoundDataSaver
-case object SnapShotAgent // Network -> Agent
+
 
 case object AgentFinished // Agent -> Network
 
@@ -166,7 +164,22 @@ class Network(networkId: UUID, numberOfAgents: Int, density: Int = -1, degreeDis
     
     private def runRound(): Unit = {
         val forceUpdate = shouldUpdate
-        agents.foreach { agent => agent ! UpdateAgent(!forceUpdate) }
+        if (forceUpdate) {
+            var i = 0
+            while (i < agents.length) {
+                agents(i) ! UpdateAgent
+                i += 1
+            }
+            // agents.foreach { agent => agent !  UpdateAgent}
+        }
+        else {
+            var i = 0
+            while (i < agents.length) {
+                agents(i) ! UpdateAgentForce
+                i += 1
+            }
+            // agents.foreach { agent => agent !  UpdateAgentForce}
+        }
         shouldUpdate = false
         shouldContinue = false
         pendingResponses = agents.length

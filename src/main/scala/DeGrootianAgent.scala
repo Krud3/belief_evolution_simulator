@@ -1,113 +1,141 @@
-import akka.actor.{Actor, ActorRef, Stash}
-import akka.dispatch.ControlMessage
+import akka.actor.{Actor, ActorRef}
 import akka.util.Timeout
-import akka.pattern.ask
 
 import scala.util.Random
 import scala.concurrent.duration.*
-import scala.collection.mutable
-import scala.concurrent.Future
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.util.{Failure, Success}
 
 // DeGroot based Agent base
 
 // Messages
 case class SetInitialState(belief: Float, toleranceRadius: Float, name: String) // Network -> Agent
+case class SetNeighborInfluence(neighbor: ActorRef, influence: Float) // Network -> Agent
+case object UpdateAgent // Network -> Agent
+case object UpdateAgentForce // Network -> Agent
+
+case object SaveAgentStaticData // Network -> Agent
+case object SnapShotAgent // Network -> Agent
 
 case class AddToNeighborhood(neighbor: ActorRef) // Agent -> self
-
-case class RequestBelief(roundSentFrom: Int) // self -> Agent
-case class SendBelief(belief: Float, senderAgent: ActorRef) // Agent -> self
-
-case class AgentUpdated(hasNextIter: Boolean, belief: Float, isStable: Boolean, 
-                        updatedBelief: Boolean) // Agent -> network
+case class SendBelief(belief: Float) extends AnyVal // Agent -> self
+case object Silent // Agent -> self
 
 // Data saving messages
-case class SendNeighbors(neighbors: mutable.Map[ActorRef, Float]) // Agent -> NetworkSaver
-case class SendStaticData(staticData: StaticAgentData) // Agent -> 
+case class SendNeighbors(refs: Array[ActorRef], weights: Array[Float], size: Int) // Agent -> NetworkSaver
+case class SendStaticData(staticData: StaticAgentData) // Agent ->
 
 // Actor
-class DeGrootianAgent extends Actor with Stash {
-    //
-    var name: String = ""
+trait AgentStateSnapshot {
+    protected def snapshotAgentState(forceSnapshot: Boolean): Unit
+}
+
+abstract class DeGrootianAgent extends Actor with AgentStateSnapshot {
+    // Constructor parameters
+    protected def networkSaver: ActorRef
+    protected val network: ActorRef = context.parent
     
-    // Parent
-    val network: ActorRef = context.parent
+    // 8-byte aligned fields
+    protected var neighborsRefs: Array[ActorRef] = new Array[ActorRef](16)
+    protected var neighborsWeights: Array[Float] = new Array[Float](16)
+    protected var name: String = ""
+    implicit val timeout: Timeout = Timeout(600.seconds) // 8 bytes
     
-    // Belief related
-    var belief: Float = -1f
-    var prevBelief: Float = -1f
-    var tolRadius: Float = 0.1 //randomBetweenF(0f, 1f)
-    val tolOffset: Float = 0 // randomBetweenF(-tolRadius, tolRadius)
+    // 4-byte aligned fields (floats)
+    protected var belief: Float = -1f
+    protected var beliefChange: Float = 0f
+    protected var tolRadius: Float = 0.1f
+    protected val tolOffset: Float = 0f
+    private var halfRange = tolRadius + tolOffset
+    protected var selfInfluence: Float = 1f
     
-    // Neighbors and influence
-    var neighbors: mutable.Map[ActorRef, Float] = mutable.Map()
-    var selfInfluence: Float = 1
-    var hasUpdatedInfluences: Boolean = false
+    // 4-byte aligned fields (ints)
+    protected var neighborsSize: Int = 0
+    protected var timesStable: Int = 0
+    protected var neighborsReceived: Int = 0
+    protected var inFavor: Int = 0
+    protected var against: Int = 0
+    protected var round: Int = 0
     
-    // Round data
-    var round: Int = 0
+    // 1-byte field
+    protected var hasUpdatedInfluences: Boolean = false
     
-    // Ask patter timeout ToDo implement better strategy for timeout
-    implicit val timeout: Timeout = Timeout(600.seconds)
+    @inline protected final def isCongruent(neighborBelief: Float): Boolean = {
+        (belief - halfRange) <= neighborBelief  && neighborBelief <= (belief + halfRange)
+    }
     
-    
-    protected def isCongruent(neighborBelief: Double): Boolean = {
-        val lower = prevBelief - tolRadius + tolOffset
-        val upper = prevBelief + tolRadius + tolOffset
-        lower <= neighborBelief && neighborBelief <= upper
+    protected def updateRound(): Unit = {
+        if (round == 0) {
+            if (!hasUpdatedInfluences) generateInfluences()
+            // Save Network structure
+            // networkSaver !  SendNeighbors(neighborsRefs, neighborsWeights, neighborsSize)
+            // Save first round state
+            snapshotAgentState(true)
+        }
+        round += 1
     }
     
     // Currently just places random numbers as the influences
-    protected def generateInfluences(): Unit = {
+    private def generateInfluences(): Unit = {
         val random = new Random
-        val randomNumbers = Vector.fill(neighbors.size + 1)(random.nextFloat())
-        val sum = randomNumbers.sum
-        val influences = randomNumbers.map(_ / sum)
-        neighbors.keys.zip(influences).foreach { case (actorRef, influence) =>
-            neighbors(actorRef) = influence
+        val totalSize = neighborsSize + 1
+        
+        // Generate all random numbers first
+        val randomNumbers = Array.fill(totalSize)(random.nextFloat())
+        val sum = randomNumbers.sum // Built-in sum is fine for small arrays
+        
+        // Update neighbor weights
+        System.arraycopy(randomNumbers, 0, neighborsWeights, 0, neighborsSize)
+        var i = 0
+        while (i < neighborsSize) {
+            neighborsWeights(i) /= sum
+            i += 1
         }
-        selfInfluence = influences.last
+        
+        // Set self influence
+        selfInfluence = randomNumbers(neighborsSize) / sum
         hasUpdatedInfluences = true
     }
     
-    protected def fetchBeliefsFromNeighbors(callback: Seq[SendBelief] => Unit): Unit = {
-        val futures = neighbors.keys.map { neighbor =>
-            (neighbor ? RequestBelief(round)).mapTo[SendBelief]
-        }
-        
-        val aggregatedFutures = Future.sequence(futures).map(_.toSeq)
-        
-        aggregatedFutures.onComplete {
-            case Success(beliefs) =>
-                callback(beliefs)
-            
-            case Failure(exception) =>
-                println(s"Error retrieving beliefs from neighbors: $exception")
+    private def ensureCapacity(): Unit = {
+        if (neighborsSize >= neighborsRefs.length) {
+            val newCapacity = neighborsRefs.length * 2
+            neighborsRefs = Array.copyOf(neighborsRefs, newCapacity)
+            neighborsWeights = Array.copyOf(neighborsWeights, newCapacity)
         }
     }
-
+    
+    private def addNeighbor(neighbor: ActorRef, influence: Float): Unit = {
+        ensureCapacity()
+        neighborsRefs(neighborsSize) = neighbor
+        neighborsWeights(neighborsSize) = influence
+        neighborsSize += 1
+    }
+    
+    protected def getInfluence(neighbor: ActorRef): Float = {
+        var i = 0
+        while (i < neighborsSize) {
+            if (neighborsRefs(i) == neighbor) return neighborsWeights(i)
+            i += 1
+        }
+        0f
+    }
     
     def receive: Receive = {
         case AddToNeighborhood(neighbor) =>
-            neighbors.put(neighbor, 0f)
+            addNeighbor(neighbor, 0f)
         
         case SetNeighborInfluence(neighbor, influence) =>
-            neighbors.put(neighbor, influence)
+            addNeighbor(neighbor, influence)
             selfInfluence -= influence
             hasUpdatedInfluences = true
         
         case SetInitialState(initialBelief, toleranceRadius, name) =>
             belief = initialBelief
-            prevBelief = belief
             tolRadius = toleranceRadius
+            halfRange = tolRadius + tolOffset
             this.name = name
         
-        case RequestBelief(roundSentFrom) if roundSentFrom != round =>
-            stash()
-            
+        case SnapShotAgent =>
+            snapshotAgentState(true)
+            context.stop(self)
     }
-    
-    
 }

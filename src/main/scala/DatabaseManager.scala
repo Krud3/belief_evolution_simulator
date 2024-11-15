@@ -463,7 +463,6 @@ object DatabaseManager {
             // Disable triggers
             stmt.execute(disableTriggersSql)
             
-            // Execute INSERT
             stmt.execute(insertSql)
             
             // Enable triggers
@@ -474,6 +473,10 @@ object DatabaseManager {
             
             conn.commit()
         } catch {
+            case e: org.postgresql.util.PSQLException
+                if e.getMessage.contains("relation") && e.getMessage.contains("does not exist") ||
+                  e.getMessage.contains("current transaction is aborted") =>
+                conn.rollback()
             case e: Exception =>
                 conn.rollback()
                 e.printStackTrace()

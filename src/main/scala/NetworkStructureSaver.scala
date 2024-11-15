@@ -15,14 +15,17 @@ class NetworkStructureSaver(numberOfAgents: Int) extends Actor {
     var agentsSaved = 0
     
     def receive: Receive = {
-        case SendNeighbors(neighbors) =>
+        case SendNeighbors(refs, weights, size) =>
             val senderName = sender().path.name
             val target = UUID.fromString(senderName)
-            neighbors.foreach {
-                case (neighbor, influence) =>
-                    val source = UUID.fromString(neighbor.path.name)
-                    networkStructure += NetworkStructure(source, target, influence)
+            
+            var i = 0
+            while (i < size) {
+                val source = UUID.fromString(refs(i).path.name)
+                networkStructure += NetworkStructure(source, target, weights(i))
+                i += 1
             }
+            
             agentsSaved += 1
             if (agentsSaved == numberOfAgents) {
                 DatabaseManager.insertNetworkStructureBatch(networkStructure.toArray)

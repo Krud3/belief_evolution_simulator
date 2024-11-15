@@ -64,7 +64,7 @@ class Monitor extends Actor {
             activeRuns.last ! StartRun
         
         case RunComplete =>
-            println("The run has been complete")
+            println("\nThe run has been complete\n")
     }
     
     def reBalanceUsage(): Unit = {
