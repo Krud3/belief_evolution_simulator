@@ -103,7 +103,6 @@ class DBCleaner extends Actor {
             timer.start()
             cleanupFunction(tableName)
             timer.stop(s"Finished cleaning $tableName")
-            globalTimer.timer.stop("Total run time", TimeUnit.MINUTES)
     }
 }
 

@@ -20,7 +20,6 @@ case class SendBelief(belief: Float) extends AnyVal // Agent -> self
 case object Silent // Agent -> self
 
 // Data saving messages
-case class SendNeighbors(refs: Array[ActorRef], weights: Array[Float], size: Int) // Agent -> NetworkSaver
 case class SendStaticData(staticData: StaticAgentData) // Agent ->
 
 // Actor
@@ -68,7 +67,7 @@ abstract class DeGrootianAgent extends Actor with AgentStateSnapshot {
             // Save Network structure
             // networkSaver !  SendNeighbors(neighborsRefs, neighborsWeights, neighborsSize)
             // Save first round state
-            snapshotAgentState(true)
+            // snapshotAgentState(true)
         }
         round += 1
     }
@@ -135,7 +134,7 @@ abstract class DeGrootianAgent extends Actor with AgentStateSnapshot {
             this.name = name
         
         case SnapShotAgent =>
-            snapshotAgentState(true)
+            // snapshotAgentState(true)
             context.stop(self)
     }
 }

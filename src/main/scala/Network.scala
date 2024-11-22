@@ -121,7 +121,12 @@ class Network(networkId: UUID, numberOfAgents: Int, density: Int = -1, degreeDis
     // Running State
     private def running: Receive = {
         case RunNetwork =>
-            agents.foreach { agent => agent ! SaveAgentStaticData }
+            // agents.foreach { agent => agent ! SaveAgentStaticData }
+            var i = 0
+            while (i < agents.length) {
+                agents(i) ! SaveAgentStaticData
+                i += 1
+            }
         
         case RunFirstRound =>
             runRound()

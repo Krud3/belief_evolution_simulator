@@ -3,6 +3,11 @@ import akka.actor.{Actor, ActorRef}
 import scala.collection.mutable.ArrayBuffer
 import java.util.UUID
 
+// Messages
+case class SendNeighbors(refs: Array[ActorRef], weights: Array[Float], size: Int) // Agent -> NetworkSaver
+
+// Actor
+
 case class NetworkStructure
 (
   source: UUID,
@@ -30,6 +35,7 @@ class NetworkStructureSaver(numberOfAgents: Int) extends Actor {
             if (agentsSaved == numberOfAgents) {
                 DatabaseManager.insertNetworkStructureBatch(networkStructure.toArray)
                 networkStructure.clear()
+                context.stop(self)
             }
     }
 }

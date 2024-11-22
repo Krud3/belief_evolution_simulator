@@ -153,13 +153,29 @@ object Mains extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
-    val density = 10
-    val numberOfAgents = 10000
-    val numberOfNetworks = 500
+    val density = 2
+    val numberOfAgents = 1000000
+    val numberOfNetworks = 10
     
     globalTimer.timer.start()
-    var i = 9
+    var i = 1
     while (i <= density) {
+//        monitor ! AddNetworks(
+//            numberOfNetworks,
+//            numberOfAgents,
+//            i,
+//            2.5f,
+//            0.001,
+//            Uniform,
+//            1000,
+//            Map(
+//                MemoryLessConfidence -> numberOfAgents,
+//                MemoryConfidence -> 0,
+//                MemoryLessMajority -> 0,
+//                MemoryMajority -> 0
+//            )
+//        )
+//
         monitor ! AddNetworks(
             numberOfNetworks,
             numberOfAgents,
@@ -175,22 +191,39 @@ object Mains extends App {
                 MemoryMajority -> 0
             )
         )
+//
+//        monitor ! AddNetworks(
+//            numberOfNetworks,
+//            numberOfAgents,
+//            i,
+//            2.5f,
+//            0.001,
+//            Uniform,
+//            1000,
+//            Map(
+//                MemoryLessConfidence -> 0,
+//                MemoryConfidence -> 0,
+//                MemoryLessMajority -> numberOfAgents,
+//                MemoryMajority -> 0
+//            )
+//        )
+//
+//        monitor ! AddNetworks(
+//            numberOfNetworks,
+//            numberOfAgents,
+//            i,
+//            2.5f,
+//            0.001,
+//            Uniform,
+//            1000,
+//            Map(
+//                MemoryLessConfidence -> 0,
+//                MemoryConfidence -> 0,
+//                MemoryLessMajority -> 0,
+//                MemoryMajority -> numberOfAgents
+//            )
+//        )
         
-        monitor ! AddNetworks(
-            numberOfNetworks,
-            numberOfAgents,
-            i,
-            2.5f,
-            0.001,
-            Uniform,
-            1000,
-            Map(
-                MemoryLessConfidence -> numberOfAgents,
-                MemoryConfidence -> 0,
-                MemoryLessMajority -> 0,
-                MemoryMajority -> 0
-            )
-        )
         i += 1
     }
     
