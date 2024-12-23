@@ -4,6 +4,8 @@ trait SilenceEffect {
     def sendBeliefToNeighbors(neighborsRefs: Array[ActorRef], sentBy: ActorRef, neighborsSize: Int,
                               belief: Float, isSpeaking: Boolean): Unit
     
+    def getPublicValue(belief: Float, isSpeaking: Boolean): Float
+    
     def getOptionalValues: Option[(String, Float)]
 }
 
@@ -16,6 +18,8 @@ class DeGrootSilenceEffect extends SilenceEffect {
             i += 1
         }
     }
+    
+    inline override def getPublicValue(belief: Float, isSpeaking: Boolean): Float = belief
     
     override def toString: String = "DeGroot"
     override def getOptionalValues: Option[(String, Float)] = None
@@ -34,6 +38,11 @@ class MemoryEffect extends SilenceEffect {
         }
     }
     
+    override def getPublicValue(belief: Float, isSpeaking: Boolean): Float = {
+        if (isSpeaking || publicBelief == 2f) publicBelief = belief
+        publicBelief
+    }
+    
     override def toString: String = "Memory"
     override def getOptionalValues: Option[(String, Float)] = Some("publicBelief", publicBelief)
 }
@@ -48,6 +57,8 @@ class MemorylessEffect extends SilenceEffect {
             i += 1
         }
     }
+    
+    inline override def getPublicValue(belief: Float, isSpeaking: Boolean): Float = belief
     
     override def toString: String = "Memoryless"
     override def getOptionalValues: Option[(String, Float)] = None
@@ -67,6 +78,9 @@ class RecencyEffect(recencyFunction: (Float, Int) => Float) extends SilenceEffec
             i += 1
         }
     }
+    
+    // ToDo implement recency effect
+    inline override def getPublicValue(belief: Float, isSpeaking: Boolean): Float = belief
     
     override def toString: String = "Recency"
     override def getOptionalValues: Option[(String, Float)] = None
@@ -89,6 +103,9 @@ class PeersEffect(silenceEffect: SilenceEffect) extends SilenceEffect {
     def updateNeighborAgreement(index: Int, value: Boolean): Unit = {
         neighborsAgreement(index) = value
     }
+    
+    // ToDo implement peers effect
+    inline override def getPublicValue(belief: Float, isSpeaking: Boolean): Float = belief
     
     override def toString: String = "Peers"
     override def getOptionalValues: Option[(String, Float)] = None

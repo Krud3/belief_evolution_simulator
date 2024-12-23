@@ -40,6 +40,25 @@ class Network(networkId: UUID,
     val agents: Array[ActorRef] = Array.ofDim[ActorRef](runMetadata.agentsPerNetwork)
     val bimodal = new BimodalDistribution(0.25, 0.75)
     
+    // Belief buffers
+    val beliefBuffer1: Array[Float] = Array.fill(runMetadata.agentsPerNetwork)(-1f)
+    val beliefBuffer2: Array[Float] = Array.fill(runMetadata.agentsPerNetwork)(-1f)
+    
+    val speakingBuffer1: Array[Boolean] = Array.fill(runMetadata.agentsPerNetwork)(true)
+    val speakingBuffer2: Array[Boolean] = Array.fill(runMetadata.agentsPerNetwork)(true)
+    
+    // Data saving
+    val neighborSaver: ActorRef = context.actorOf(Props(
+        new NeighborSaver(runMetadata.agentsPerNetwork)
+        ), name = s"NeighborSaver${self.path.name}")
+    
+    val agentStaticDataSaver: ActorRef = context.actorOf(Props(
+        new AgentStaticDataSaver(runMetadata.agentsPerNetwork, networkId)
+        ), name = s"StaticSaver_${self.path.name}")
+    
+    // Limits
+    implicit val timeout: Timeout = Timeout(600.seconds)
+    
     // Round state
     var round: Int = 0
     var pendingResponses: Int = 0
@@ -47,26 +66,14 @@ class Network(networkId: UUID,
     var maxBelief: Float = -1.0f
     var shouldUpdate: Boolean = false
     var shouldContinue: Boolean = false
-    
-    // Data saving
-    val neighborSaver: ActorRef = context.actorOf(Props(
-        new NeighborSaver(runMetadata.agentsPerNetwork)
-    ), name = s"NeighborSaver${self.path.name}")
-    
-    val agentStaticDataSaver: ActorRef = context.actorOf(Props(
-        new AgentStaticDataSaver(runMetadata.agentsPerNetwork, networkId)
-    ), name = s"StaticSaver_${self.path.name}")
-    
-    // Limits
-    implicit val timeout: Timeout = Timeout(600.seconds)
-
+    var bufferSwitch: Boolean = true
     
     def receive: Receive = building
     
     // Building state
     private def building: Receive = {
         case BuildCustomNetwork(agents, neighbors) =>
-            val agentMap = new java.util.HashMap[String, ActorRef](agents.length)
+            val agentMap = new java.util.HashMap[String, (ActorRef, Int)](agents.length)
             
             for (i <- agents.indices) {
                 val agentId: UUID = UUIDGenerator.generateUUID().unsafeRunSync()
@@ -74,11 +81,12 @@ class Network(networkId: UUID,
                     agentId,
                     agents(i).silenceStrategy,
                     agents(i).silenceEffect,
+                    i,
                     agentId.toString
                 )
                 this.agents(i) = newAgent
                 
-                agentMap.put(agents(i).name, newAgent)
+                agentMap.put(agents(i).name, (newAgent, i))
                 
                 newAgent ! SetInitialState(
                     agents(i).name,
@@ -91,8 +99,8 @@ class Network(networkId: UUID,
             var i = 0
             while (i < neighbors.length) {
                 val neighbor = neighbors(i)
-                val source = agentMap.get(neighbor.source)
-                val target = agentMap.get(neighbor.target)
+                val source = agentMap.get(neighbor.source)._1
+                val target = agentMap.get(neighbor.target)._2
                 
                 source ! SetNeighborInfluence(target, neighbor.influence, neighbor.bias)
                 i += 1
@@ -113,11 +121,11 @@ class Network(networkId: UUID,
             for (i <- 0 until runMetadata.optionalMetaData.get.density.get) {
                 val agentId: UUID = UUIDGenerator.generateUUID().unsafeRunSync()
                 val agentType = chooseAgentType(pickStack.pop())
-                val newAgent = createNewAgent(agentId, agentType._1, agentType._2, agentId.toString)
+                val newAgent = createNewAgent(agentId, agentType._1, agentType._2, i, agentId.toString)
                 agents(i) = newAgent
                 for (j <- 0 until i) {
-                    agents(j) ! AddNeighbor(newAgent, CognitiveBiasType.DeGroot)
-                    newAgent ! AddNeighbor(agents(j), CognitiveBiasType.DeGroot)
+                    agents(j) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
+                    newAgent ! AddNeighbor(j, CognitiveBiasType.DeGroot)
                 }
             }
             
@@ -125,14 +133,14 @@ class Network(networkId: UUID,
             for (i <- runMetadata.optionalMetaData.get.density.get - 1 until runMetadata.agentsPerNetwork - 1) {
                 val agentId: UUID = UUIDGenerator.generateUUID().unsafeRunSync()
                 val agentType = chooseAgentType(pickStack.pop())
-                val newAgent = createNewAgent(agentId, agentType._1, agentType._2, agentId.toString)
+                val newAgent = createNewAgent(agentId, agentType._1, agentType._2, i + 1, agentId.toString)
                 agents(i + 1) = newAgent
                 
                 val agentsPicked = fenwickTree.pickRandoms()
                 // ToDo convert to while loop
                 agentsPicked.foreach { agent =>
-                    agents(agent) ! AddNeighbor(newAgent, CognitiveBiasType.DeGroot)
-                    newAgent ! AddNeighbor(agents(agent), CognitiveBiasType.DeGroot)
+                    agents(agent) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
+                    newAgent ! AddNeighbor(agent, CognitiveBiasType.DeGroot)
                 }
             }
             context.become(running)
@@ -149,7 +157,7 @@ class Network(networkId: UUID,
             pendingResponses = agents.length
             var i = 0
             while (i < agents.length) {
-                agents(i) ! FirstUpdate(neighborSaver, agentStaticDataSaver)
+                agents(i) ! FirstUpdate(neighborSaver, agentStaticDataSaver, beliefBuffer1, agents)
                 i += 1
             }
         
@@ -169,6 +177,9 @@ class Network(networkId: UUID,
             if (pendingResponses == 0) {
                 // if (round % 50 == 0) println(s"Round $round")
                 round += 1
+//                println(beliefBuffer1.mkString("B1 Array(", ", ", ")"))
+//                println(beliefBuffer2.mkString("B2 Array(", ", ", ")"))
+//                Thread.sleep(1000)
 //                println(s"Round $round complete \n" +
 //                  s"con1: ${(maxBelief - minBelief) < runMetadata.stopThreshold}\n" +
 //                  s"con2: ${round == runMetadata.iterationLimit || !shouldContinue}"
@@ -199,25 +210,27 @@ class Network(networkId: UUID,
     
     private def runRound(): Unit = {
         var i = 0
+        val msg = if (bufferSwitch) UpdateAgent(beliefBuffer1, beliefBuffer2, speakingBuffer1, speakingBuffer2)
+                  else UpdateAgent(beliefBuffer2, beliefBuffer1, speakingBuffer2, speakingBuffer1)
         while (i < agents.length) {
-            agents(i) ! UpdateAgent
+            agents(i) ! msg
             i += 1
         }
         // agents.foreach { agent => agent !  UpdateAgent}
         // agents.foreach { agent => agent !  UpdateAgentForce}
         shouldContinue = false
-        
+        bufferSwitch = !bufferSwitch
     }
     
     
     // Functions:
     private def createNewAgent(agentId: UUID, silenceStrategyType: SilenceStrategyType,
-                               silenceEffectType: SilenceEffectType, agentName: String): ActorRef = {
+                               silenceEffectType: SilenceEffectType, agentIndex: Int, agentName: String): ActorRef = {
         val silenceStrategy = SilenceStrategyFactory.create(silenceStrategyType)
         val silenceEffect = SilenceEffectFactory.create(silenceEffectType)
         
         context.actorOf(Props(
-            new Agent(agentId, silenceStrategy, silenceEffect, runMetadata)
+            new Agent(agentId, silenceStrategy, silenceEffect, runMetadata, agentIndex)
         ), agentName)
     }
     

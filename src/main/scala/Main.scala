@@ -111,19 +111,15 @@ object Mains extends App {
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
     val density = 3
-    val numberOfNetworks = 10
-    val numberOfAgents = 1_000_000
+    val numberOfNetworks = 1_000
+    val numberOfAgents = 10_000
     
     globalTimer.timer.start()
-//    var i = 1
-//    while (i <= density) {
-//    
-//    }
     monitor ! AddNetworks(
         agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
         agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
         distribution = Uniform,
-        saveMode = Agentless,
+        saveMode = Agentless, //Agentless
         recencyFunction = None,
         numberOfNetworks = numberOfNetworks,
         density = density,
@@ -132,96 +128,115 @@ object Mains extends App {
         stopThreshold = 0.001f
     )
 
-    val customRun = AddSpecificNetwork(
-        Array(
-            AgentInitialState("Agent1", 1f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
-            AgentInitialState("Agent2", 0.8f, 0.15, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
-            AgentInitialState("Agent3", 0.5f, 0.1, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
-            AgentInitialState("Agent4", 0.2f, 0.15, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
-            AgentInitialState("Agent5", 0.0f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless)
-        ),
-        Array(
-            Neighbors("Agent1", "Agent2", 0.4f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent1", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent2", "Agent1", 0.4f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent2", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent3", "Agent1", 0.2f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent3", "Agent2", 0.2f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent3", "Agent4", 0.2f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent3", "Agent5", 0.2f, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent4", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent4", "Agent5", 0.4f, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent5", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
-            Neighbors("Agent5", "Agent4", 0.4f, CognitiveBiasType.DeGroot),
-        ),
-        CustomDistribution,
-        Full,
-        0.001f,
-        1000,
-        "First_try",
-        None
-    )
-    
-//    val pizza_topping = simulateFromCustomExample(
-//        beliefs = Array(1.0f, 0.8f, 0.5f, 0.2f, 0.0f),
-//        influences = Array(
-//            Array(("Agent2", 0.4f), ("Agent3", 0.1f)),
-//            Array(("Agent1", 0.4f), ("Agent3", 0.1f)),
-//            Array(("Agent1", 0.2f), ("Agent2", 0.2f), ("Agent4", 0.2f), ("Agent5", 0.2f)),
-//            Array(("Agent3", 0.1f), ("Agent5", 0.4f)),
-//            Array(("Agent3", 0.1f), ("Agent4", 0.4f)),
-//            ),
-//        agentType = MemoryLessMajority,
-//        iterationLimit = 1000,
-//        name = "pizza_topping",
-//        tolerances = Array(
-//            0.2f, 0.15f,
-//            0.1f,
-//            0.15f, 0.2f
-//            )
-//        )
-    
+//    val customRun = AddSpecificNetwork(
+//        Array(
+//            AgentInitialState("Agent1", 1f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
+//            AgentInitialState("Agent2", 0.8f, 0.15, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
+//            AgentInitialState("Agent3", 0.5f, 0.1, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
+//            AgentInitialState("Agent4", 0.2f, 0.15, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
+//            AgentInitialState("Agent5", 0.0f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless)
+//        ),
+//        Array(
+//            Neighbors("Agent1", "Agent2", 0.4f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent1", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent2", "Agent1", 0.4f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent2", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent3", "Agent1", 0.2f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent2", 0.2f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent4", 0.2f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent5", 0.2f, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent4", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent4", "Agent5", 0.4f, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent5", "Agent3", 0.1f, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent5", "Agent4", 0.4f, CognitiveBiasType.DeGroot),
+//        ),
+//        CustomDistribution,
+//        Full,
+//        0.001f,
+//        1000,
+//        "First_try",
+//        None
+//    )
+//
+//     monitor ! customRun
+//
     var outer_weak = 0.21f
     var outer_strong = 0.15f
     var inner_weak = 0.4f
     var inner_strong = 0.32f
-    val publicRun1 = AddSpecificNetwork(
-        Array(
-            AgentInitialState("Agent1", 1f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
-            AgentInitialState("Agent2", 0.9f, 0.1, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
-            AgentInitialState("Agent3", 0.1f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
-            AgentInitialState("Agent4", 0f, 0.15, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory)
-            ),
-        Array(
-            Neighbors("Agent1", "Agent2", inner_weak, CognitiveBiasType.DeGroot),
-            Neighbors("Agent1", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
-            Neighbors("Agent1", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent2", "Agent1", inner_strong, CognitiveBiasType.DeGroot),
-            Neighbors("Agent2", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
-            Neighbors("Agent2", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent3", "Agent1", outer_strong, CognitiveBiasType.DeGroot),
-            Neighbors("Agent3", "Agent2", outer_weak, CognitiveBiasType.DeGroot),
-            Neighbors("Agent3", "Agent4", inner_strong, CognitiveBiasType.DeGroot),
-            
-            Neighbors("Agent4", "Agent1", outer_strong, CognitiveBiasType.DeGroot),
-            Neighbors("Agent4", "Agent2", outer_weak, CognitiveBiasType.DeGroot),
-            Neighbors("Agent4", "Agent3", inner_weak, CognitiveBiasType.DeGroot)
-            ),
-        CustomDistribution,
-        Full,
-        0.001f,
-        1000,
-        "First_try",
-        None
-        )
-
-    // monitor ! publicRun1
+//    val publicRun1 = AddSpecificNetwork(
+//        Array(
+//            AgentInitialState("Agent1", 1f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
+//            AgentInitialState("Agent2", 0.9f, 0.1, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
+//            AgentInitialState("Agent3", 0.1f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
+//            AgentInitialState("Agent4", 0f, 0.15, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory)
+//            ),
+//        Array(
+//            Neighbors("Agent1", "Agent2", inner_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent1", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent1", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent2", "Agent1", inner_strong, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent2", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent2", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent3", "Agent1", outer_strong, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent2", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent4", inner_strong, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent4", "Agent1", outer_strong, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent4", "Agent2", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent4", "Agent3", inner_weak, CognitiveBiasType.DeGroot)
+//            ),
+//        CustomDistribution,
+//        Full,
+//        0.001f,
+//        1000,
+//        "First_try",
+//        None
+//        )
+    
+//    outer_weak = 0.4f
+//    outer_strong = 0.15f
+//    inner_weak = 0.35f
+//    inner_strong = 0.15f
+//    val paperExample1 = AddSpecificNetwork(
+//        Array(
+//            AgentInitialState("Agent1", 1f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
+//            AgentInitialState("Agent2", 0.9f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
+//            AgentInitialState("Agent3", 0.1f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
+//            AgentInitialState("Agent4", 0f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory)
+//            ),
+//        Array(
+//            Neighbors("Agent1", "Agent2", inner_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent1", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent1", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent2", "Agent1", inner_strong, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent2", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent2", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent3", "Agent1", outer_strong, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent2", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent3", "Agent4", inner_strong, CognitiveBiasType.DeGroot),
+//
+//            Neighbors("Agent4", "Agent1", outer_strong, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent4", "Agent2", outer_weak, CognitiveBiasType.DeGroot),
+//            Neighbors("Agent4", "Agent3", inner_weak, CognitiveBiasType.DeGroot)
+//            ),
+//        CustomDistribution,
+//        Full,
+//        0.001f,
+//        1000,
+//        "First_try",
+//        None
+//        )
+//
+//     monitor ! paperExample1
     
     val runtime = Runtime.getRuntime
     val maxMemory = runtime.maxMemory() / (1024 * 1024)

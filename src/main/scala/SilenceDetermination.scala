@@ -4,13 +4,13 @@ trait SilenceStrategy {
 }
 
 class DeGrootSilenceStrategy extends SilenceStrategy {
-    override def determineSilence(inFavor: Int, against: Int): Boolean = true
+    inline override def determineSilence(inFavor: Int, against: Int): Boolean = true
     override def toString: String = "DeGroot"
     override def getOptionalValues: Option[Array[(String, Float)]] = None
 }
 
 class MajoritySilence extends SilenceStrategy {
-    override def determineSilence(inFavor: Int, against: Int): Boolean = {
+    inline override def determineSilence(inFavor: Int, against: Int): Boolean = {
         inFavor >= against
     }
     override def toString: String = "Majority"
@@ -18,7 +18,7 @@ class MajoritySilence extends SilenceStrategy {
 }
 
 class ThresholdSilence(threshold: Float) extends SilenceStrategy {
-    override def determineSilence(inFavor: Int, against: Int): Boolean = {
+    inline override def determineSilence(inFavor: Int, against: Int): Boolean = {
         threshold * (inFavor + against) >= inFavor.toFloat
     }
     override def toString: String = "Threshold"

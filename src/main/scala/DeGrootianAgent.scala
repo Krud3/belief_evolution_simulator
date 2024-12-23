@@ -9,17 +9,22 @@ import scala.concurrent.duration.*
 
 // Messages
 case class SetInitialState(name: String, belief: Float, toleranceRadius: Float, toleranceOffset: Float) // Network -> Agent
-case class SetNeighborInfluence(neighbor: ActorRef, influence: Float, biasType: CognitiveBiasType) // Network -> Agent
-case object UpdateAgent // Network -> Agent
+case class SetNeighborInfluence(neighbor: Int, influence: Float, biasType: CognitiveBiasType) // Network -> Agent
+case class UpdateAgent(
+    readBuffer: Array[Float], writeBuffer: Array[Float],
+    readSpeakingBuffer: Array[Boolean], writeSpeakingBuffer: Array[Boolean]
+) // Network -> Agent
 case object UpdateAgentForce // Network -> Agent
 case object SnapShotAgent // Network -> Agent
 
-case class FirstUpdate(neighborSaver: ActorRef, staticSaver: ActorRef) // Network -> Agent
+case class FirstUpdate(
+    neighborSaver: ActorRef, staticSaver: ActorRef,
+    beliefBuffer1: Array[Float], agents: Array[ActorRef]) // Network -> Agent
 
-case class AddToNeighborhood(neighbor: ActorRef) // Agent -> self
+case class AddNeighbor(neighbor: Int, biasType: CognitiveBiasType) // Agent -> self
 case class SendBelief(belief: Float) extends AnyVal // Agent -> self
 case object Silent // Agent -> self
-case class SendInfluenceReduced(belief: Float, influenceRedux: Float) // Agent -> self 
+case class SendInfluenceReduced(belief: Float, influenceRedux: Float) // Agent -> self
 
 // Data saving messages
 case class SendStaticData
@@ -36,22 +41,18 @@ case class SendStaticData
   name: Option[String] = None
 ) // Agent -> Agent static data saver
 
-case class AddNeighbor(neighbor: ActorRef, biasType: CognitiveBiasType)
-
 // New Gen Agent
 class Agent(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEffect,
-            runMetadata: RunMetadata, var name: Option[String] = None) extends Actor {
-    
+            runMetadata: RunMetadata, agentIndex: Int, var name: Option[String] = None) extends Actor {
     // 8-byte aligned fields
-    private var neighborsRefs: Array[ActorRef] = new Array[ActorRef](16)
-    private var neighborsWeights: Array[Float] = new Array[Float](16)
-    private var neighborBiases: Array[CognitiveBiasType] = new Array[CognitiveBiasType](16)
+    private var neighborsRefs: Array[Int] = new Array[Int](4)
+    private var neighborsWeights: Array[Float] = new Array[Float](4)
+    private var neighborBiases: Array[CognitiveBiasType] = new Array[CognitiveBiasType](4)
     private implicit val timeout: Timeout = Timeout(600.seconds) // 8 bytes
     private var stateData: java.util.HashMap[String, Float] = null
     
     // 4-byte aligned fields (floats)
     private var belief: Float = -1f
-    private var beliefChange: Float = 0f
     private var tolRadius: Float = 0.1f
     private var tolOffset: Float = 0f
     private var halfRange = tolRadius + tolOffset
@@ -59,12 +60,12 @@ class Agent(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEf
     // 4-byte aligned fields (ints)
     private var neighborsSize: Int = 0
     private var timesStable: Int = 0
-    private var neighborsReceived: Int = 0
     private var inFavor: Int = 0
     private var against: Int = 0
     private var round: Int = 0
     
     // 1-byte fields
+    private val hasMemory: Boolean = silenceEffect.toString == "Memory"
     private var hasUpdatedInfluences: Boolean = false
     private var isSpeaking: Boolean = true
     
@@ -80,13 +81,14 @@ class Agent(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEf
             hasUpdatedInfluences = true
         
         case SetInitialState(name, initialBelief, toleranceRadius, toleranceOffset) =>
-                    belief = initialBelief
-                    tolRadius = toleranceRadius
-                    tolOffset = toleranceOffset
-                    halfRange = tolRadius + tolOffset
-                    this.name = Some(name)
+            belief = initialBelief
+            tolRadius = toleranceRadius
+            tolOffset = toleranceOffset
+            halfRange = tolRadius + tolOffset
+            this.name = Some(name)
         
-        case FirstUpdate(neighborSaver, agentStaticDataSaver) =>
+        case FirstUpdate(neighborSaver, agentStaticDataSaver, beliefBuffer1, agents) =>
+            beliefBuffer1(agentIndex) = silenceEffect.getPublicValue(belief, isSpeaking)
             if (!hasUpdatedInfluences) generateInfluences()
             if (runMetadata.saveMode.includesAgents) {
                 agentStaticDataSaver ! SendStaticData(
@@ -94,123 +96,124 @@ class Agent(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEf
                     toleranceRadius = tolRadius, tolOffset = tolOffset,
                     beliefExpressionThreshold = None, openMindedness = None,
                     causeOfSilence = silenceStrategy.toString, effectOfSilence = silenceEffect.toString, beliefUpdateMethod = "DeGroot",
-                    name = this.name)
+                    name = name)
             }
-            //println(s"${name.get} $isSpeaking at round $round with belief $belief and belief change $beliefChange")
-            if (runMetadata.saveMode.includesNeighbors) 
-                neighborSaver ! SendNeighbors(neighborsRefs, neighborsWeights, neighborBiases, neighborsSize)
-                
-            if (runMetadata.saveMode.includesFirstRound) snapshotAgentState(true)
+            if (runMetadata.saveMode.includesNeighbors) {
+                val neighborActors: Array[ActorRef] = Array.ofDim[ActorRef](neighborsSize)
+                var i = 0
+                while (i < neighborsSize - 3) {
+                    neighborActors(i) = agents(neighborsRefs(i))
+                    neighborActors(i + 1) = agents(neighborsRefs(i + 1))
+                    neighborActors(i + 2) = agents(neighborsRefs(i + 2))
+                    neighborActors(i + 3) = agents(neighborsRefs(i + 3))
+                    i += 4
+                }
+                while (i < neighborsSize) {
+                    neighborActors(i) = agents(neighborsRefs(i))
+                    i += 1
+                }
+                neighborSaver ! SendNeighbors(neighborActors, neighborsWeights, neighborBiases, neighborsSize)
+            }
+            if (runMetadata.saveMode.includesFirstRound) snapshotAgentState()
             
             context.parent ! RunFirstRound
-        
-        case SendBelief(neighborBelief) =>
-            neighborsReceived += 1
-            if (isCongruent(neighborBelief)) inFavor += 1
-            else against += 1
-            beliefChange += CognitiveBiases.applyBias(getBias(sender()), neighborBelief - belief) * 
-              getInfluence(sender())
             
-            if (neighborsReceived == neighborsSize) {
-                round += 1
-                isSpeaking = silenceStrategy.determineSilence(inFavor, against)
-                belief += beliefChange
-                
-                if (beliefChange < runMetadata.stopThreshold) timesStable += 1
-                else timesStable = 0
-                if (runMetadata.saveMode.includesRounds) snapshotAgentState(true)
-                context.parent ! AgentUpdated(
-                    belief,
-                    beliefChange < runMetadata.stopThreshold && timesStable > 1
-                    )
-                //println(s"${name.get} $isSpeaking at round $round with belief $belief and belief change $beliefChange")
-                // Reset
-                neighborsReceived = 0
-                beliefChange = 0f
-                inFavor = 0
-                against = 0
+        case UpdateAgent(readBuffer, writeBuffer, readSpeakingBuffer, writeSpeakingBuffer) =>
+            // Update belief
+            var i = 0
+            val initialBelief = belief
+            while (i < neighborsSize - 3) {
+                belief += boolToFloat(readSpeakingBuffer(neighborsRefs(i))) * CognitiveBiases.applyBias(neighborBiases(i), readBuffer(neighborsRefs(i)) - initialBelief) * neighborsWeights(i)
+                belief += boolToFloat(readSpeakingBuffer(neighborsRefs(i + 1))) * CognitiveBiases.applyBias(neighborBiases(i + 1), readBuffer(neighborsRefs(i + 1)) - initialBelief) * neighborsWeights(i + 1)
+                belief += boolToFloat(readSpeakingBuffer(neighborsRefs(i + 2))) * CognitiveBiases.applyBias(neighborBiases(i + 2), readBuffer(neighborsRefs(i + 2)) - initialBelief) * neighborsWeights(i + 2)
+                belief += boolToFloat(readSpeakingBuffer(neighborsRefs(i + 3))) * CognitiveBiases.applyBias(neighborBiases(i + 3), readBuffer(neighborsRefs(i + 3)) - initialBelief) * neighborsWeights(i + 3)
+
+                if (readSpeakingBuffer(neighborsRefs(i)) || hasMemory) congruent(readBuffer(neighborsRefs(i)))
+                if (readSpeakingBuffer(neighborsRefs(i)) || hasMemory) congruent(readBuffer(neighborsRefs(i + 1)))
+                if (readSpeakingBuffer(neighborsRefs(i)) || hasMemory) congruent(readBuffer(neighborsRefs(i + 2)))
+                if (readSpeakingBuffer(neighborsRefs(i)) || hasMemory) congruent(readBuffer(neighborsRefs(i + 3)))
+                i += 4
             }
-        
-        case Silent =>
-            neighborsReceived += 1
             
-            if (neighborsReceived == neighborsSize) {
-                round += 1
-                isSpeaking = silenceStrategy.determineSilence(inFavor, against)
-                belief += beliefChange
-                
-                if (beliefChange < runMetadata.stopThreshold) timesStable += 1
-                else timesStable = 0
-                if (runMetadata.saveMode.includesRounds) snapshotAgentState(true)
-                context.parent ! AgentUpdated(
-                    belief,
-                    beliefChange < runMetadata.stopThreshold && timesStable > 1
+            while (i < neighborsSize) {
+                belief += boolToFloat(readSpeakingBuffer(neighborsRefs(i))) * CognitiveBiases.applyBias(neighborBiases(i), readBuffer(neighborsRefs(i)) - initialBelief) * neighborsWeights(i)
+                if (readSpeakingBuffer(neighborsRefs(i)) || hasMemory) congruent(readBuffer(neighborsRefs(i)))
+                i += 1
+            }
+            
+            round += 1
+            isSpeaking = silenceStrategy.determineSilence(inFavor, against)
+            
+            // Write to buffers
+            writeSpeakingBuffer(agentIndex) = isSpeaking
+            writeBuffer(agentIndex) = silenceEffect.getPublicValue(belief, isSpeaking)
+            // println(s"Round $round At ${name.get} $agentIndex with ${silenceEffect.getPublicValue(belief, isSpeaking)} at ${writeBuffer(agentIndex)} and $isSpeaking")
+            val isStable = math.abs(belief - readBuffer(agentIndex)) < runMetadata.stopThreshold
+            if (isStable) timesStable += 1
+            else timesStable = 0
+            if (runMetadata.saveMode.includesRounds && math.abs(belief - readBuffer(agentIndex)) != 0) snapshotAgentState()
+            
+            inFavor = 0
+            against = 0
+            context.parent ! AgentUpdated(
+                belief,
+                math.abs(belief - readBuffer(agentIndex)) < runMetadata.stopThreshold && timesStable > 1
                 )
-                
-                //println(s"${name.get} $isSpeaking at round $round with belief $belief and belief change $beliefChange")
-                
-                // Reset
-                neighborsReceived = 0
-                beliefChange = 0f
-                inFavor = 0
-                against = 0
-            }
             
-        case UpdateAgent|UpdateAgentForce =>
-            silenceEffect.sendBeliefToNeighbors(neighborsRefs, self, neighborsSize, belief, isSpeaking)
+            //silenceEffect.sendBeliefToNeighbors(neighborsRefs, self, neighborsSize, belief, isSpeaking)
         
         case SnapShotAgent =>
-            snapshotAgentState(true)
+            snapshotAgentState()
             
     }
     
-    private def snapshotAgentState(forceSnapshot: Boolean = false): Unit = {
-        if (beliefChange != 0 || forceSnapshot) {
+    private def snapshotAgentState(): Unit = {
+        silenceEffect.getOptionalValues match {
+            case Some((name, value)) =>
+                if (stateData == null) {
+                    stateData = new java.util.HashMap[String, Float]()
+                }
+                stateData.put(name, value)
+            case None =>
+        }
+        
+        silenceStrategy.getOptionalValues match {
+            case Some(array) =>
+                if (stateData == null) {
+                    stateData = new java.util.HashMap[String, Float](array.length)
+                }
+                var i = 0
+                while (i < array.length) {
+                    stateData.put(array(i)._1, array(i)._2)
+                    i += 1
+                }
             
-            silenceEffect.getOptionalValues match {
-                case Some((name, value)) =>
-                    if (stateData == null) {
-                        stateData = new java.util.HashMap[String, Float]()
-                    }
-                    stateData.put(name, value)
-                case None =>
-            }
-            
-            silenceStrategy.getOptionalValues match {
-                case Some(array) =>
-                    if (stateData == null) {
-                        stateData = new java.util.HashMap[String, Float](array.length)
-                    }
-                    var i = 0
-                    while (i < array.length) {
-                        stateData.put(array(i)._1, array(i)._2)
-                        i += 1
-                    }
-                    
-                case None =>
-            }
-            
-            if (isSpeaking) {
-                RoundRouter.getRoute ! AgentStateSpeaking(AgentState(
-                    id,
-                    round,
-                    belief,
-                    Option(stateData)
-                    ))
-            } else {
-                RoundRouter.getRoute ! AgentStateSilent(AgentState(
-                    id,
-                    round,
-                    belief,
-                    Option(stateData)
-                    ))
-            }
+            case None =>
+        }
+        
+        if (isSpeaking) {
+            RoundRouter.getRoute ! AgentStateSpeaking(AgentState(
+                id,
+                round,
+                belief,
+                Option(stateData)
+                ))
+        } else {
+            RoundRouter.getRoute ! AgentStateSilent(AgentState(
+                id,
+                round,
+                belief,
+                Option(stateData)
+                ))
         }
     }
     
-    @inline private final def isCongruent(neighborBelief: Float): Boolean = {
-        (belief - halfRange) <= neighborBelief && neighborBelief <= (belief + halfRange)
+    inline private final def congruent(neighborBelief: Float): Unit = {
+        if ((belief - halfRange) <= neighborBelief && neighborBelief <= (belief + halfRange)) inFavor += 1
+        else against += 1
     }
+    
+    inline private def boolToFloat(b: Boolean): Float = if b || hasMemory then 1.0f else 0.0f
     
     private def ensureCapacity(): Unit = {
         if (neighborsSize >= neighborsRefs.length) {
@@ -221,7 +224,7 @@ class Agent(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEf
         }
     }
     
-    private def addNeighbor(neighbor: ActorRef, influence: Float = 0.0f, 
+    private def addNeighbor(neighbor: Int, influence: Float = 0.0f,
                             biasType: CognitiveBiasType = CognitiveBiasType.DeGroot): Unit = {
         ensureCapacity()
         neighborsRefs(neighborsSize) = neighbor
@@ -230,16 +233,26 @@ class Agent(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEf
         neighborsSize += 1
     }
     
-    private def getInfluence(neighbor: ActorRef): Float = {
+    private def getInfluence(neighborRef: Int): Float = {
         var i = 0
         while (i < neighborsSize) {
-            if (neighborsRefs(i) == neighbor) return neighborsWeights(i)
+            if (neighborsRefs(i) == neighborRef) return neighborsWeights(i)
             i += 1
         }
         0f
     }
     
-    private def getBias(neighbor: ActorRef): CognitiveBiasType = {
+    private def getInfluences(startIndex: Int): Array[Float] = {
+        val influences: Array[Float] = Array.ofDim[Float](4)
+        influences(0) = neighborsWeights(startIndex)
+        influences(1) = neighborsWeights(startIndex + 1)
+        influences(2) = neighborsWeights(startIndex + 2)
+        influences(3) = neighborsWeights(startIndex + 3)
+        
+        influences
+    }
+    
+    private def getBias(neighbor: Int): CognitiveBiasType = {
         var i = 0
         while (i < neighborsSize) {
             if (neighborsRefs(i) == neighbor) return neighborBiases(i)

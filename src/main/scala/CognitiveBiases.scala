@@ -18,7 +18,7 @@ object CognitiveBiases {
     
     def authority(beliefDifference: Float): Float = {
         beliefDifference match {
-            case 0 => 0.0f
+            case 0f => 0.0f
             case _ => beliefDifference / math.abs(beliefDifference)
         }
     }
