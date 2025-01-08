@@ -195,3 +195,11 @@ print(p_publication)
 
 # ggsave("publication.svg", plot = p_publication, width = 15, height = 10, dpi = 300)
 # ggsave("testing.svg", plot = p_publication, width = 16, height = 10, units = "cm", dpi = 300)
+# ggsave("testing.svg", plot = p_publication, width = 10, height = 6.5, units = "in", dpi = 300)
+ggsave("testing.svg", plot = p_publication, width = 15, height = 10, dpi = 300)
+# ggsave("testing.svg", plot = p_publication, width = 16, height = 10, units = "cm", dpi = 300)
+
+filtered[, state_data := NULL]
+keycol <-c("round","agent_label")
+setorderv(filtered, keycol)
+fwrite(filtered, "som-dissensus.csv")

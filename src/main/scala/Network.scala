@@ -38,14 +38,15 @@ class Network(networkId: UUID,
               agentBiases: Array[(CognitiveBiasType, Float)]) extends Actor {
     // Agents
     val agents: Array[ActorRef] = Array.ofDim[ActorRef](runMetadata.agentsPerNetwork)
+    val agents_ids: Array[UUID] = Array.ofDim[UUID](runMetadata.agentsPerNetwork)
     val bimodal = new BimodalDistribution(0.25, 0.75)
     
     // Belief buffers
     val beliefBuffer1: Array[Float] = Array.fill(runMetadata.agentsPerNetwork)(-1f)
     val beliefBuffer2: Array[Float] = Array.fill(runMetadata.agentsPerNetwork)(-1f)
     
-    val speakingBuffer1: Array[Boolean] = Array.fill(runMetadata.agentsPerNetwork)(true)
-    val speakingBuffer2: Array[Boolean] = Array.fill(runMetadata.agentsPerNetwork)(true)
+    val speakingBuffer1: AgentStates = AgentStates(runMetadata.agentsPerNetwork)
+    val speakingBuffer2: AgentStates = AgentStates(runMetadata.agentsPerNetwork)
     
     // Data saving
     val neighborSaver: ActorRef = context.actorOf(Props(
@@ -137,11 +138,16 @@ class Network(networkId: UUID,
                 agents(i + 1) = newAgent
                 
                 val agentsPicked = fenwickTree.pickRandoms()
-                // ToDo convert to while loop
-                agentsPicked.foreach { agent =>
-                    agents(agent) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
-                    newAgent ! AddNeighbor(agent, CognitiveBiasType.DeGroot)
+                var j = 0
+                while (j < agentsPicked.length) {
+                    agents(agentsPicked(j)) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
+                    newAgent ! AddNeighbor(agentsPicked(j), CognitiveBiasType.DeGroot)
+                    j += 1
                 }
+//                agentsPicked.foreach { agent =>
+//                    agents(agent) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
+//                    newAgent ! AddNeighbor(agent, CognitiveBiasType.DeGroot)
+//                }
             }
             context.become(running)
             context.parent ! BuildingComplete(networkId)
@@ -157,7 +163,7 @@ class Network(networkId: UUID,
             pendingResponses = agents.length
             var i = 0
             while (i < agents.length) {
-                agents(i) ! FirstUpdate(neighborSaver, agentStaticDataSaver, beliefBuffer1, agents)
+                agents(i) ! FirstUpdate(neighborSaver, agentStaticDataSaver, agents)
                 i += 1
             }
         
@@ -210,8 +216,15 @@ class Network(networkId: UUID,
     
     private def runRound(): Unit = {
         var i = 0
-        val msg = if (bufferSwitch) UpdateAgent(beliefBuffer1, beliefBuffer2, speakingBuffer1, speakingBuffer2)
-                  else UpdateAgent(beliefBuffer2, beliefBuffer1, speakingBuffer2, speakingBuffer1)
+        val msg = if (bufferSwitch) UpdateAgent1R else UpdateAgent2R
+        while (i < agents.length - 3) {
+            agents(i) ! msg
+            agents(i + 1) ! msg
+            agents(i + 2) ! msg
+            agents(i + 3) ! msg
+            i += 4
+        }
+        
         while (i < agents.length) {
             agents(i) ! msg
             i += 1
@@ -230,7 +243,8 @@ class Network(networkId: UUID,
         val silenceEffect = SilenceEffectFactory.create(silenceEffectType)
         
         context.actorOf(Props(
-            new Agent(agentId, silenceStrategy, silenceEffect, runMetadata, agentIndex)
+            new Agent(agentId, silenceStrategy, silenceEffect, runMetadata, beliefBuffer1, beliefBuffer2,
+                      speakingBuffer1, speakingBuffer2, agentIndex)
         ), agentName)
     }
     

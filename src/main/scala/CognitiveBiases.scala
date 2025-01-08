@@ -6,24 +6,24 @@ enum CognitiveBiasType:
     case Insular
 
 object CognitiveBiases {
-    def DeGroot(beliefDifference: Float): Float = beliefDifference
+    @inline def DeGroot(beliefDifference: Float): Float = beliefDifference
     
-    def confirmation(beliefDifference: Float): Float = {
+    @inline def confirmation(beliefDifference: Float): Float = {
         (beliefDifference * (1f + 0.0001f - math.abs(beliefDifference))) / (1f + 0.0001f)
     }
     
-    def backfire(beliefDifference: Float): Float = {
+    @inline def backfire(beliefDifference: Float): Float = {
         -(math.pow(beliefDifference, 3).toFloat)
     }
     
-    def authority(beliefDifference: Float): Float = {
+    @inline def authority(beliefDifference: Float): Float = {
         beliefDifference match {
             case 0f => 0.0f
             case _ => beliefDifference / math.abs(beliefDifference)
         }
     }
     
-    def insular(beliefDifference: Float): Float = 0f
+    @inline def insular(beliefDifference: Float): Float = 0f
     
     def applyBias(biasType: CognitiveBiasType, beliefDifference: Float): Float = {
         biasType match {

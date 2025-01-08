@@ -110,16 +110,16 @@ object Mains extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
-    val density = 3
-    val numberOfNetworks = 1_000
-    val numberOfAgents = 10_000
+    val density = 4
+    val numberOfNetworks = 100
+    val numberOfAgents = 1_000_000
     
     globalTimer.timer.start()
     monitor ! AddNetworks(
         agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
         agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
         distribution = Uniform,
-        saveMode = Agentless, //Agentless
+        saveMode = Agentless, //NeighborlessMode(Roundless)
         recencyFunction = None,
         numberOfNetworks = numberOfNetworks,
         density = density,
@@ -164,11 +164,11 @@ object Mains extends App {
 //
 //     monitor ! customRun
 //
-    var outer_weak = 0.21f
-    var outer_strong = 0.15f
-    var inner_weak = 0.4f
-    var inner_strong = 0.32f
-//    val publicRun1 = AddSpecificNetwork(
+//    var outer_weak = 0.21f
+//    var outer_strong = 0.15f
+//    var inner_weak = 0.4f
+//    var inner_strong = 0.32f
+//    val privateConsensus = AddSpecificNetwork(
 //        Array(
 //            AgentInitialState("Agent1", 1f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
 //            AgentInitialState("Agent2", 0.9f, 0.1, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
@@ -199,12 +199,13 @@ object Mains extends App {
 //        "First_try",
 //        None
 //        )
+//    monitor ! privateConsensus
     
 //    outer_weak = 0.4f
 //    outer_strong = 0.15f
 //    inner_weak = 0.35f
 //    inner_strong = 0.15f
-//    val paperExample1 = AddSpecificNetwork(
+//    val privateDissensus = AddSpecificNetwork(
 //        Array(
 //            AgentInitialState("Agent1", 1f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
 //            AgentInitialState("Agent2", 0.9f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory),
@@ -212,6 +213,7 @@ object Mains extends App {
 //            AgentInitialState("Agent4", 0f, 0.05, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memory)
 //            ),
 //        Array(
+//            // Agent2 --inner_weak--> Agent1
 //            Neighbors("Agent1", "Agent2", inner_weak, CognitiveBiasType.DeGroot),
 //            Neighbors("Agent1", "Agent3", outer_weak, CognitiveBiasType.DeGroot),
 //            Neighbors("Agent1", "Agent4", outer_strong, CognitiveBiasType.DeGroot),
@@ -236,7 +238,7 @@ object Mains extends App {
 //        None
 //        )
 //
-//     monitor ! paperExample1
+//     monitor ! privateDissensus
     
     val runtime = Runtime.getRuntime
     val maxMemory = runtime.maxMemory() / (1024 * 1024)
