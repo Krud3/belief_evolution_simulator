@@ -46,8 +46,47 @@ class CustomMultiTimer {
         
         val duration = endTime - startOpt.getOrElse(throw new IllegalStateException("Timer was not started"))
         val durationInUnit = getTimeElapsed(duration, timeUnit)
-        println(s"$key$msg: $durationInUnit ${timeUnit.toString.toLowerCase}")
+        val formattedDuration = formatDuration(durationInUnit, timeUnit)
+        println(s"$key$msg: $formattedDuration")
         duration
+    }
+    
+    private def formatDuration(duration: Long, timeUnit: TimeUnit): String = {
+        // Convert everything to milliseconds first for easier calculation
+        val millis = timeUnit match {
+            case TimeUnit.NANOSECONDS => duration / 1_000_000
+            case TimeUnit.MICROSECONDS => duration / 1_000
+            case TimeUnit.MILLISECONDS => duration
+            case TimeUnit.SECONDS => duration * 1_000
+            case TimeUnit.MINUTES => duration * 60 * 1_000
+            case TimeUnit.HOURS => duration * 60 * 60 * 1_000
+            case _ => duration
+        }
+        
+        if (millis < 1) {
+            val micros = millis * 1000
+            if (micros < 1) {
+                val nanos = micros * 1000
+                f"${nanos.toDouble}%.1f ns"
+            } else {
+                f"${micros.toDouble}%.1f µs"
+            }
+        } else if (millis < 1000) {
+            f"${millis.toDouble}%.1f ms"
+        } else if (millis < 60000) { // less than 1 minute
+            val seconds = millis / 1000.0
+            f"$seconds%.1f s"
+        } else if (millis < 3600000) { // less than 1 hour
+            val totalSeconds = millis / 1000
+            val minutes = totalSeconds / 60
+            val seconds = totalSeconds % 60
+            f"$minutes%d:${seconds}%02d"
+        } else {
+            val totalMinutes = millis / (1000 * 60)
+            val hours = totalMinutes / 60
+            val minutes = totalMinutes % 60
+            f"$hours%d:${minutes}%02d"
+        }
     }
     
     private def getTimeElapsed(duration: Long, timeUnit: TimeUnit): Long = timeUnit match {
