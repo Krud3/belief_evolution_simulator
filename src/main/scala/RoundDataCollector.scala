@@ -7,17 +7,17 @@ import play.api.libs.json.Json
 
 import java.util.UUID
 import scala.concurrent.{ExecutionContextExecutor, Future}
+import scala.collection.mutable.ArrayBuffer
 
 case class AgentState
 (
     agentId: UUID,
-    round: Int,
     belief: Float,
-    stateData: Option[java.util.HashMap[String, Float]]
+    optionalData: ByteBuffer
 )
 
-case class AgentStateSpeaking(agentState: AgentState)
-case class AgentStateSilent(agentState: AgentState)
+case class AgentStatesSpeaking(agentState: ArrayBuffer[AgentState], round: Int)
+case class AgentStatesSilent(agentState: ArrayBuffer[AgentState], round: Int)
 
 class RoundDataCollector(tableNumber: Int, totalCollectors: Int) extends Actor {
     private case object CheckActivity
@@ -43,16 +43,26 @@ class RoundDataCollector(tableNumber: Int, totalCollectors: Int) extends Actor {
     )
     
     def receive: Receive = {
-        case AgentStateSpeaking(agentState) =>
-            receivedCount += 1
-            speakingStream.addRow(agentState)
+        case AgentStatesSpeaking(agentStates, round) =>
+            var i = 0
+            while (i < agentStates.length) {
+                speakingStream.addRow(agentStates(i), round)
+                i += 1
+            }
+            
+            receivedCount += agentStates.length
             if (receivedCount >= saveThreshold) flush()
             hasUpdated = true
         
         
-        case AgentStateSilent(agentState) =>
-            receivedCount += 1
-            silentStream.addRow(agentState)
+        case AgentStatesSilent(agentStates, round) =>
+            var i = 0
+            while (i < agentStates.length) {
+                speakingStream.addRow(agentStates(i), round)
+                i += 1
+            }
+            
+            receivedCount += agentStates.length
             if (receivedCount >= saveThreshold) flush()
             hasUpdated = true
         
@@ -124,7 +134,7 @@ class StreamBuffer(bufferSize: Int) {
         dataOut.writeInt(0)
     }
     
-    def addRow(agentState: AgentState): Unit = {
+    def addRow(agentState: AgentState, round: Int): Unit = {
         // Write number of fields
         dataOut.writeShort(4)
         
@@ -138,40 +148,21 @@ class StreamBuffer(bufferSize: Int) {
         
         // Write round
         dataOut.writeInt(4)
-        dataOut.writeInt(agentState.round)
+        dataOut.writeInt(round)
         
         // Write belief
         dataOut.writeInt(4)
         dataOut.writeFloat(agentState.belief)
         
-        // Write state data as JSON
-        if (agentState.stateData eq None) {
+        // Write state data as ODBF
+        val dataLength = agentState.optionalData.remaining()
+        if (dataLength == 0) {
             dataOut.writeInt(-1)
         } else {
-            val map = agentState.stateData.get
-            
-            val estimatedSize = map.size * 30 // Estimate capacity 22 (max) + 8 chars for float
-            val sb = new StringBuilder(estimatedSize)
-            sb.append('{')
-            
-            val entries = map.entrySet()
-            val iter = entries.iterator()
-            if (iter.hasNext) {
-                val entry = iter.next()
-                sb.append('"').append(entry.getKey).append("\":").append(entry.getValue)
-                
-                while (iter.hasNext) {
-                    val entry = iter.next()
-                    sb.append(',').append('"').append(entry.getKey).append("\":").append(entry.getValue)
-                }
-            }
-            sb.append('}')
-            
-            val jsonData = sb.toString.getBytes("UTF-8")
-            
-            // For non-null JSON, write length followed by data
-            dataOut.writeInt(jsonData.length)
-            dataOut.write(jsonData)
+            dataOut.writeInt(dataLength)
+            dataOut.write(agentState.optionalData.array(),
+                          agentState.optionalData.position(),
+                          dataLength)
         }
     }
     

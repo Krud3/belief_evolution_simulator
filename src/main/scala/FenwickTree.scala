@@ -1,3 +1,5 @@
+import scala.util.Random
+
 class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean = false) {
     private val tree = Array.ofDim[Double](size + 1) //Array.fill(8)(0)
     private val scoresArr = Array.ofDim[Double](size + 1)
@@ -55,23 +57,26 @@ class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean
         curMax = query(scores.length)
     }
     
-    // O(d * log(n) + d)
+    // O(d * log2(n)^2 + d * log2(n) + log2(n))
     def pickRandoms(): Array[Int] = {
         val nodesPicked = Array.ofDim[Int](density)
         var curLocalMax = curMax
-        for (i <- 0 until density) {
-            val randomValue = randomBetween(0, curLocalMax)
-            nodesPicked(i) = findRange(randomValue)
-            // "Delete" operation
+        val random = new Random
+        var i = 0
+        while (i < density) {
+            nodesPicked(i) = findRange(random.nextDouble() * curLocalMax)
             curLocalMax -= scoresArr(nodesPicked(i) + 1)
             updateTree(nodesPicked(i), -scoresArr(nodesPicked(i) + 1))
+            i += 1
         }
         
         // Reassign the values and correct for index moved values
-        for (i <- 0 until density) {
+        i = 0
+        while (i < density) {
             scoresArr(nodesPicked(i) + 1) += 1
             updateTree(nodesPicked(i), scoresArr(nodesPicked(i) + 1))
             if (countFreqs) freqs(nodesPicked(i) + 1) += 1
+            i += 1
         }
         
         curMax += minScore + density

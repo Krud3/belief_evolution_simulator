@@ -5,28 +5,27 @@ import java.io.{BufferedWriter, File, FileWriter}
 import cats.effect.IO
 import tech.ant8e.uuid4cats.UUIDv7
 
+val random = new Random()
+
 def roundToNDecimals(number: Double, n: Int): Double = {
     val bd = BigDecimal(number)
     bd.setScale(n, BigDecimal.RoundingMode.HALF_UP).toDouble
 }
 
-def roundToNDecimalsF(number: Float, n: Int): Float = {
+@inline def roundToNDecimalsF(number: Float, n: Int): Float = {
     val bd = BigDecimal(number)
     bd.setScale(n, BigDecimal.RoundingMode.HALF_UP).toFloat
 }
 
 def randomBetween(lower: Double = 0, upper: Double = 1, decimals: Int = 8): Double = {
-    val random = new Random()
     roundToNDecimals(random.nextDouble() * (upper - lower) + lower, decimals)
 }
 
-def randomBetweenF(lower: Float = 0, upper: Float = 1, decimals: Int = 8): Float = {
-    val random = new Random()
+@inline def randomBetweenF(lower: Float = 0, upper: Float = 1, decimals: Int = 8): Float = {
     roundToNDecimalsF(random.nextFloat() * (upper - lower) + lower, decimals)
 }
 
 def randomIntBetween(lower: Int = 0, upper: Int = 1): Int = {
-    val random = new Random()
     lower + random.nextInt(upper + 1)
 }
 

@@ -1,12 +1,14 @@
+import odbf.Encoder
+
 trait SilenceStrategy {
     def determineSilence(inFavor: Int, against: Int): Boolean
-    def getOptionalValues: Option[Array[(String, Float)]]
+    @inline def encodeOptionalValues(encoder: Encoder): Unit
 }
 
 class DeGrootSilenceStrategy extends SilenceStrategy {
     inline override def determineSilence(inFavor: Int, against: Int): Boolean = true
     override def toString: String = "DeGroot"
-    override def getOptionalValues: Option[Array[(String, Float)]] = None
+    override def encodeOptionalValues(encoder: Encoder): Unit = {}
 }
 
 class MajoritySilence extends SilenceStrategy {
@@ -14,7 +16,7 @@ class MajoritySilence extends SilenceStrategy {
         inFavor >= against
     }
     override def toString: String = "Majority"
-    override def getOptionalValues: Option[Array[(String, Float)]] = None
+    override def encodeOptionalValues(encoder: Encoder): Unit = {}
 }
 
 class ThresholdSilence(threshold: Float) extends SilenceStrategy {
@@ -22,7 +24,7 @@ class ThresholdSilence(threshold: Float) extends SilenceStrategy {
         threshold * (inFavor + against) >= inFavor.toFloat
     }
     override def toString: String = "Threshold"
-    override def getOptionalValues: Option[Array[(String, Float)]] = None
+    override def encodeOptionalValues(encoder: Encoder): Unit = {}
 }
 
 class ConfidenceSilence(threshold: Float, openMindedness: Int) extends SilenceStrategy {
@@ -42,9 +44,10 @@ class ConfidenceSilence(threshold: Float, openMindedness: Int) extends SilenceSt
     
     def getConfidence: Float = (2f / (1f + Math.exp(-confidenceUnbounded).toFloat)) - 1f
     override def toString: String = "Confidence"
-    override def getOptionalValues: Option[Array[(String, Float)]] = Some(
-        Array(("confidenceUnbounded", confidenceUnbounded),
-              ("opinionClimate", opinionClimate)))
+    @inline override def encodeOptionalValues(encoder: Encoder): Unit = {
+        encoder.encodeFloat("confidence", (2f / (1f + Math.exp(-confidenceUnbounded).toFloat)) - 1f)
+        encoder.encodeFloat("opinionClimate", opinionClimate)
+    }
 }
 
 enum SilenceStrategyType:
@@ -60,3 +63,4 @@ object SilenceStrategyFactory:
         case SilenceStrategyType.Threshold(threshold) => ThresholdSilence(threshold)
         case SilenceStrategyType.Confidence(threshold, openMindedness) =>
             ConfidenceSilence(threshold, openMindedness)
+            

@@ -1,27 +1,28 @@
 import akka.actor.Actor
 
 import java.util.UUID
+import scala.collection.IndexedSeqView
 
-case class StaticAgentData
+case class StaticData
 (
   networkId: UUID,
-  static: SendStaticData
+  static: IndexedSeqView[StaticAgentData]
 )
 
+case class SendStaticAgentData(staticAgentData: IndexedSeqView[StaticAgentData])
+
 class AgentStaticDataSaver(numberOfAgents: Int, networkId: UUID) extends Actor {
-    private var staticAgentData: Array[StaticAgentData] = Array.ofDim[StaticAgentData](numberOfAgents)
     private var agentsSaved: Int = 0
     
     def receive: Receive = {
-        case staticAgentData: SendStaticData =>
-            this.staticAgentData(agentsSaved) = StaticAgentData(
+        case SendStaticAgentData(staticAgentData) =>
+            val staticData = StaticData(
                 networkId,
                 staticAgentData
             )
-            agentsSaved += 1
+            agentsSaved += staticAgentData.length
+            DatabaseManager.insertAgentsBatch(staticData)
             if (agentsSaved == numberOfAgents) {
-                DatabaseManager.insertAgentsBatch(this.staticAgentData)
-                this.staticAgentData = Array.ofDim[StaticAgentData](0)
                 context.stop(self)
             }
         

@@ -5,6 +5,7 @@ import org.postgresql.core.BaseConnection
 import java.io.ByteArrayInputStream
 import java.sql.{Connection, PreparedStatement, Statement}
 import java.util.UUID
+import scala.collection.IndexedSeqView
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -164,7 +165,7 @@ object DatabaseManager {
                 ) VALUES (CAST(? AS uuid), ?, ?, ?) RETURNING id;
                 """
             val stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)
-            stmt.setString(1, id.toString)
+            stmt.setObject(1, id)
             stmt.setInt(2, runId)
             stmt.setInt(3, numberOfAgents)
             stmt.setString(4, name)
@@ -176,34 +177,38 @@ object DatabaseManager {
         }
     }
     
-    def insertAgentsBatch(agents: Array[StaticAgentData]): Unit = {
+    def insertAgentsBatch(agents: StaticData): Unit = {
         val conn = getConnection
         var stmt: PreparedStatement = null
         try {
             conn.setAutoCommit(true)
             val sql = """
-                INSERT INTO public.agents (
-                    id, network_id, number_of_neighbors, tolerance_radius, tol_offset,
-                    silence_strategy, silence_effect, belief_update_method,
-                    expression_threshold, open_mindedness, name
-                ) VALUES (CAST(? AS uuid), CAST(? AS uuid), ?, ?, ?, CAST(? AS silence_strategy), 
-                CAST(? AS silence_effect), CAST(? AS belief_update_method), ?, ?, ?);
-            """
+            INSERT INTO public.agents (
+                id, network_id, number_of_neighbors, tolerance_radius, tol_offset,
+                silence_strategy, silence_effect, belief_update_method,
+                expression_threshold, open_mindedness, name
+            ) VALUES (CAST(? AS uuid), CAST(? AS uuid), ?, ?, ?, CAST(? AS silence_strategy),
+            CAST(? AS silence_effect), CAST(? AS belief_update_method), ?, ?, ?);
+        """
             stmt = conn.prepareStatement(sql)
             
-            agents.foreach { agent =>
-                stmt.setString(1, agent.static.id.toString)
-                stmt.setObject(2, agent.networkId)
-                stmt.setInt(3, agent.static.numberOfNeighbors)
-                stmt.setFloat(4, agent.static.toleranceRadius)
-                stmt.setFloat(5, agent.static.tolOffset)
-                stmt.setString(6, agent.static.causeOfSilence)
-                stmt.setString(7, agent.static.effectOfSilence)
-                stmt.setString(8, agent.static.beliefUpdateMethod)
-                setPreparedStatementFloat(stmt, 9, agent.static.beliefExpressionThreshold)
-                setPreparedStatementInt(stmt, 10, agent.static.openMindedness)
-                setPreparedStatementString(stmt, 11, agent.static.name)
+            var i = 0
+            val size = agents.static.size
+            while (i < size) {
+                val agent = agents.static(i)
+                stmt.setObject(1, agent.id)
+                stmt.setObject(2, agents.networkId)
+                stmt.setInt(3, agent.numberOfNeighbors)
+                stmt.setFloat(4, agent.toleranceRadius)
+                stmt.setFloat(5, agent.tolOffset)
+                stmt.setString(6, agent.causeOfSilence)
+                stmt.setString(7, agent.effectOfSilence)
+                stmt.setString(8, agent.beliefUpdateMethod)
+                setPreparedStatementFloat(stmt, 9, agent.beliefExpressionThreshold)
+                setPreparedStatementInt(stmt, 10, agent.openMindedness)
+                setPreparedStatementString(stmt, 11, agent.name)
                 stmt.addBatch()
+                i += 1
             }
             stmt.executeBatch()
         } catch {
@@ -215,22 +220,26 @@ object DatabaseManager {
     }
     
     // ToDo optimize insert to maybe use copy or batched concurrency
-    def insertNeighborsBatch(networkStructures: ArrayBuffer[NetworkStructure]): Unit = {
+    def insertNeighborsBatch(networkStructures: IndexedSeqView[NeighborStructure]): Unit = {
         val conn = dataSource.getConnection
         try {
             val sql =
                 """
-                INSERT INTO public.neighbors (
-                    source, target, value, cognitive_bias
-                ) VALUES (CAST(? AS uuid), CAST(? AS uuid), ?, CAST(? AS cognitive_bias));
-                """
+            INSERT INTO public.neighbors (
+                source, target, value, cognitive_bias
+            ) VALUES (CAST(? AS uuid), CAST(? AS uuid), ?, CAST(? AS cognitive_bias));
+            """
             val stmt = conn.prepareStatement(sql)
-            networkStructures.foreach { networkStructure =>
-                stmt.setString(1, networkStructure.source.toString)
-                stmt.setString(2, networkStructure.target.toString)
+            var i = 0
+            val size = networkStructures.size
+            while (i < size) {
+                val networkStructure = networkStructures(i)
+                stmt.setObject(1, networkStructure.source)
+                stmt.setObject(2, networkStructure.target)
                 stmt.setFloat(3, networkStructure.value)
                 stmt.setString(4, networkStructure.bias.toString)
                 stmt.addBatch()
+                i += 1
             }
             
             stmt.executeBatch()
@@ -254,7 +263,7 @@ object DatabaseManager {
                     agent_id uuid NOT NULL,
                     round integer NOT NULL,
                     belief real NOT NULL,
-                    state_data json
+                    state_data bytea
                 );
                 """
             )

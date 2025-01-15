@@ -111,15 +111,15 @@ object Mains extends App {
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
     val density = 4
-    val numberOfNetworks = 100
-    val numberOfAgents = 1_000_000
+    val numberOfNetworks = 1000
+    val numberOfAgents = 10_000
     
     globalTimer.timer.start()
     monitor ! AddNetworks(
         agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
         agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
         distribution = Uniform,
-        saveMode = Agentless, //NeighborlessMode(Roundless)
+        saveMode = Agentless, //NeighborlessMode(Roundless) Agentless
         recencyFunction = None,
         numberOfNetworks = numberOfNetworks,
         density = density,

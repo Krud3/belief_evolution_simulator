@@ -20,10 +20,10 @@ case class BuildCustomNetwork(
 case object BuildNetwork // Monitor -> network
 case class BuildNetworkByGroups(groups: Int)
 case object RunNetwork // Monitor -> network
-case object RunFirstRound // AgentStaticDataSaver -> Network
+case object RunFirstRound // Agent -> Network
 
 
-case class AgentUpdated(belief: Float, isStable: Boolean) // Agent -> network
+case class AgentUpdated(maxBelief: Float, minBelief: Float, isStable: Boolean) // Agent -> network
 case object SaveRemainingData // Network -> AgentRoundDataSaver
 
 
@@ -37,8 +37,13 @@ class Network(networkId: UUID,
               agentTypeCount: Array[(SilenceStrategyType, SilenceEffectType, Int)],
               agentBiases: Array[(CognitiveBiasType, Float)]) extends Actor {
     // Agents
-    val agents: Array[ActorRef] = Array.ofDim[ActorRef](runMetadata.agentsPerNetwork)
-    val agents_ids: Array[UUID] = Array.ofDim[UUID](runMetadata.agentsPerNetwork)
+    val numberOfAgentActors: Int = (runMetadata.agentsPerNetwork + 31) / 32
+    val agentsPerActor: Array[Int] = new Array[Int](numberOfAgentActors)
+    calculateAgentsPerActor() // fill agents per actor
+    val bucketStart: Array[Int] = new Array[Int](numberOfAgentActors)
+    calculateCumSum() // Fill buckets
+    val agents: Array[ActorRef] = Array.ofDim[ActorRef](numberOfAgentActors)
+    val agentsIds: Array[UUID] = Array.ofDim[UUID](runMetadata.agentsPerNetwork)
     val bimodal = new BimodalDistribution(0.25, 0.75)
     
     // Belief buffers
@@ -74,36 +79,48 @@ class Network(networkId: UUID,
     // Building state
     private def building: Receive = {
         case BuildCustomNetwork(agents, neighbors) =>
-            val agentMap = new java.util.HashMap[String, (ActorRef, Int)](agents.length)
-            
-            for (i <- agents.indices) {
-                val agentId: UUID = UUIDGenerator.generateUUID().unsafeRunSync()
-                val newAgent = createNewAgent(
-                    agentId,
-                    agents(i).silenceStrategy,
-                    agents(i).silenceEffect,
-                    i,
-                    agentId.toString
-                )
-                this.agents(i) = newAgent
-                
-                agentMap.put(agents(i).name, (newAgent, i))
-                
-                newAgent ! SetInitialState(
-                    agents(i).name,
-                    agents(i).initialBelief,
-                    agents(i).toleranceRadius,
-                    agents(i).toleranceOffset
-                    )
-            }
-            
+            val agentMap = new java.util.HashMap[String, Int](agents.length)
             var i = 0
+            var j = 0
+            while (i < agentsPerActor.length) {
+                val silenceStrategy: Array[SilenceStrategy] = new Array[SilenceStrategy](agentsPerActor(i))
+                val silenceEffect: Array[SilenceEffect] = new Array[SilenceEffect](agentsPerActor(i))
+                val names: Array[String] = new Array[String](agentsPerActor(i))
+                
+                while (j < agentsPerActor(i)) {
+                    agentsIds(j + bucketStart(i)) = UUIDGenerator.generateUUID().unsafeRunSync()
+                    silenceStrategy(j) = SilenceStrategyFactory.create(agents(j).silenceStrategy)
+                    silenceEffect(j) = SilenceEffectFactory.create(agents(j).silenceEffect)
+                    names(j) = agents(j).name
+                    agentMap.put(agents(j).name, j + bucketStart(i))
+                    j += 1
+                }
+                val index = i
+                this.agents(i) = context.actorOf(Props(
+                    new Agent(
+                        agentsIds,
+                        silenceStrategy, silenceEffect,
+                        runMetadata,
+                        beliefBuffer1, beliefBuffer2,
+                        speakingBuffer1, speakingBuffer2,
+                        agentsPerActor(index), bucketStart(index),
+                        names
+                        )
+                    ), s"${self.path.name}_A$i")
+                j = 0
+                while (j < agentsPerActor(i)) {
+                    this.agents(i) ! SetInitialState(agents(j).initialBelief, agents(j).toleranceRadius,
+                                                     agents(j).toleranceOffset, j)
+                     j += 1
+                }
+                i += 1
+            }
+            i = 0
             while (i < neighbors.length) {
                 val neighbor = neighbors(i)
-                val source = agentMap.get(neighbor.source)._1
-                val target = agentMap.get(neighbor.target)._2
-                
-                source ! SetNeighborInfluence(target, neighbor.influence, neighbor.bias)
+                val source: Int = agentMap.get(neighbor.source)
+                val target: Int = agentMap.get(neighbor.target)
+                getAgentActor(source) ! SetNeighborInfluence(source, target, neighbor.influence, neighbor.bias)
                 i += 1
             }
             
@@ -115,39 +132,61 @@ class Network(networkId: UUID,
                 runMetadata.agentsPerNetwork,
                 runMetadata.optionalMetaData.get.density.get,
                 runMetadata.optionalMetaData.get.degreeDistribution.get - 2)
-            val pickStack = createShuffledStack(runMetadata.agentsPerNetwork)
-
             
-            // Initialize the first n=density agents
-            for (i <- 0 until runMetadata.optionalMetaData.get.density.get) {
-                val agentId: UUID = UUIDGenerator.generateUUID().unsafeRunSync()
-                val agentType = chooseAgentType(pickStack.pop())
-                val newAgent = createNewAgent(agentId, agentType._1, agentType._2, i, agentId.toString)
-                agents(i) = newAgent
-                for (j <- 0 until i) {
-                    agents(j) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
-                    newAgent ! AddNeighbor(j, CognitiveBiasType.DeGroot)
+            // Create the Actors
+            val agentsRemaining: Array[Int] = agentTypeCount.map(_._3)
+            var agentRemainingCount = runMetadata.agentsPerNetwork
+            var i = 0
+            while (i < agentsPerActor.length) {
+                val silenceStrategy: Array[SilenceStrategy] = new Array[SilenceStrategy](agentsPerActor(i))
+                val silenceEffect: Array[SilenceEffect] = new Array[SilenceEffect](agentsPerActor(i))
+                
+                // Get the proportion of agents
+                val agentTypes = getNextBucketDistribution(agentsRemaining, agentsPerActor(i), agentRemainingCount)
+                
+                // Set the agent types
+                var j = 0
+                var k = 0
+                while (j < agentTypes.length) {
+                    while (k < agentTypes(j)) {
+                        agentsIds(k + bucketStart(i)) = UUIDGenerator.generateUUID().unsafeRunSync()
+                        silenceStrategy(k) = SilenceStrategyFactory.create(agentTypeCount(j)._1)
+                        silenceEffect(k) = SilenceEffectFactory.create(agentTypeCount(j)._2)
+                        k += 1
+                    }
+                    j += 1
                 }
+                agentRemainingCount -= agentsPerActor(i)
+                // Create the agent actor
+                val index = i
+                agents(i) = context.actorOf(Props(
+                    new Agent(agentsIds, silenceStrategy, silenceEffect, runMetadata, beliefBuffer1, beliefBuffer2,
+                              speakingBuffer1, speakingBuffer2, agentsPerActor(index), bucketStart(index), null)
+                    ), s"${self.path.name}_A$i")
+                
+                i += 1
             }
             
-            // Create and link the agents
-            for (i <- runMetadata.optionalMetaData.get.density.get - 1 until runMetadata.agentsPerNetwork - 1) {
-                val agentId: UUID = UUIDGenerator.generateUUID().unsafeRunSync()
-                val agentType = chooseAgentType(pickStack.pop())
-                val newAgent = createNewAgent(agentId, agentType._1, agentType._2, i + 1, agentId.toString)
-                agents(i + 1) = newAgent
-                
+            // Initialize the first n=density agents
+            i = 0
+            while (i < runMetadata.optionalMetaData.get.density.get) {
+                for (j <- 0 until i) {
+                    getAgentActor(i) ! AddNeighbor(i, j, CognitiveBiasType.DeGroot)
+                    getAgentActor(j) ! AddNeighbor(j, i, CognitiveBiasType.DeGroot)
+                }
+                i += 1
+            }
+            
+            // Create and link the rest of the agents
+            while (i < runMetadata.agentsPerNetwork) {
                 val agentsPicked = fenwickTree.pickRandoms()
                 var j = 0
                 while (j < agentsPicked.length) {
-                    agents(agentsPicked(j)) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
-                    newAgent ! AddNeighbor(agentsPicked(j), CognitiveBiasType.DeGroot)
+                    getAgentActor(i) ! AddNeighbor(i, agentsPicked(j), CognitiveBiasType.DeGroot)
+                    getAgentActor(agentsPicked(j)) ! AddNeighbor(agentsPicked(j), i, CognitiveBiasType.DeGroot)
                     j += 1
                 }
-//                agentsPicked.foreach { agent =>
-//                    agents(agent) ! AddNeighbor(i, CognitiveBiasType.DeGroot)
-//                    newAgent ! AddNeighbor(agent, CognitiveBiasType.DeGroot)
-//                }
+                i += 1
             }
             context.become(running)
             context.parent ! BuildingComplete(networkId)
@@ -175,31 +214,26 @@ class Network(networkId: UUID,
                 pendingResponses = agents.length
             }
             
-        case AgentUpdated(belief, isStable) =>
+        case AgentUpdated(maxActorBelief, minActorBelief, isStable) => 
             pendingResponses -= 1
+            // If isStable true then we don't continue as we are stable
             if (!isStable) shouldContinue = true
-            maxBelief = math.max(maxBelief, belief)
-            minBelief = math.min(minBelief, belief)
+            maxBelief = math.max(maxBelief, maxActorBelief)
+            minBelief = math.min(minBelief, minActorBelief)
             if (pendingResponses == 0) {
-                // if (round % 50 == 0) println(s"Round $round")
-                round += 1
-//                println(beliefBuffer1.mkString("B1 Array(", ", ", ")"))
-//                println(beliefBuffer2.mkString("B2 Array(", ", ", ")"))
-//                Thread.sleep(1000)
-//                println(s"Round $round complete \n" +
-//                  s"con1: ${(maxBelief - minBelief) < runMetadata.stopThreshold}\n" +
-//                  s"con2: ${round == runMetadata.iterationLimit || !shouldContinue}"
-//                )
                 if ((maxBelief - minBelief) < runMetadata.stopThreshold) {
+                    println(s"Final round: $round")
                     context.parent ! RunningComplete(networkId)
                     if (runMetadata.saveMode.includesNetworks) DatabaseManager.updateNetworkFinalRound(networkId, round, true)
                     if (runMetadata.saveMode.includesLastRound) agents.foreach { agent => agent ! SnapShotAgent }
                 }
                 else if (round == runMetadata.iterationLimit || !shouldContinue) {
+                    println(s"Final round: $round")
                     context.parent ! RunningComplete(networkId)
                     if (runMetadata.saveMode.includesNetworks) DatabaseManager.updateNetworkFinalRound(networkId, round, false)
                     if (runMetadata.saveMode.includesLastRound) agents.foreach { agent => agent ! SnapShotAgent }
                 } else {
+                    round += 1
                     runRound()
                     minBelief = 2.0
                     maxBelief = -1.0
@@ -229,40 +263,60 @@ class Network(networkId: UUID,
             agents(i) ! msg
             i += 1
         }
-        // agents.foreach { agent => agent !  UpdateAgent}
-        // agents.foreach { agent => agent !  UpdateAgentForce}
         shouldContinue = false
         bufferSwitch = !bufferSwitch
     }
     
     
     // Functions:
-    private def createNewAgent(agentId: UUID, silenceStrategyType: SilenceStrategyType,
-                               silenceEffectType: SilenceEffectType, agentIndex: Int, agentName: String): ActorRef = {
-        val silenceStrategy = SilenceStrategyFactory.create(silenceStrategyType)
-        val silenceEffect = SilenceEffectFactory.create(silenceEffectType)
-        
-        context.actorOf(Props(
-            new Agent(agentId, silenceStrategy, silenceEffect, runMetadata, beliefBuffer1, beliefBuffer2,
-                      speakingBuffer1, speakingBuffer2, agentIndex)
-        ), agentName)
-    }
-    
-    private def createShuffledStack(n: Int): mutable.Stack[Int] = {
-        val stack = mutable.Stack[Int]()
-        stack.pushAll(Random.shuffle(1 to n))
-        stack
-    }
-    
-    private def chooseAgentType(number: Int): (SilenceStrategyType, SilenceEffectType) = {
-        var i: Int = 0
-        while (i <= agentTypeCount.length) {
-            if (number <= agentTypeCount(i)._3) {
-                return (agentTypeCount(i)._1, agentTypeCount(i)._2)
-            }
+    def getNextBucketDistribution(agentsRemaining: Array[Int], bucketSize: Int, totalAgentsRemaining: Int): Array[Int] = {
+        val result = new Array[Int](agentsRemaining.length)
+        val floatPart = new Array[Double](agentsRemaining.length)
+        var i = 0
+        while (i < agentsRemaining.length) {
+            val fullResult = (agentsRemaining(i) * bucketSize).toDouble / totalAgentsRemaining
+            val intPart = math.floor(fullResult).toInt
+            val decimalPart = fullResult - intPart
+            result(i) = intPart
+            agentsRemaining(i) -= intPart
+            floatPart(i) = decimalPart
             i += 1
         }
-        (agentTypeCount(i)._1, agentTypeCount(i)._2)
+        
+        val remainder = floatPart.zipWithIndex.sortBy(-_._1)
+        val missing = math.round(floatPart.sum).toInt
+        i = 0
+        while (i < missing) {
+            result(remainder(i)._2) += 1
+            agentsRemaining(remainder(i)._2) -= 1
+            i += 1
+        }
+        
+        result
+    }
+    
+    @inline def calculateAgentsPerActor(): Unit = {
+        var i = 0
+        var remainingToAssign = runMetadata.agentsPerNetwork
+        while (0 < remainingToAssign) {
+            agentsPerActor(i) += math.min(8, remainingToAssign)
+            remainingToAssign -= 8
+            i = (i + 1) % numberOfAgentActors
+        }
+    }
+    
+    @inline def calculateCumSum(): Unit = {
+        for (i <- 1 until numberOfAgentActors)
+            bucketStart(i) = agentsPerActor(i - 1) + bucketStart(i - 1)
+    }
+    
+    @inline def getAgentActor(index: Int): ActorRef = {
+        var i = 0
+        while (i < bucketStart.length - 1) {
+            if (index < bucketStart(i + 1)) return agents(i)
+            i += 1
+        }
+        agents(i)
     }
     
 }
