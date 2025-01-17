@@ -21,7 +21,7 @@ class MajoritySilence extends SilenceStrategy {
 
 class ThresholdSilence(threshold: Float) extends SilenceStrategy {
     inline override def determineSilence(inFavor: Int, against: Int): Boolean = {
-        threshold * (inFavor + against) >= inFavor.toFloat
+        threshold * (inFavor + against) <= inFavor.toFloat
     }
     override def toString: String = "Threshold"
     override def encodeOptionalValues(encoder: Encoder): Unit = {}
