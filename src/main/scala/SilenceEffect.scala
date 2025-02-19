@@ -15,7 +15,6 @@ class MemoryEffect extends SilenceEffect {
     var publicBelief: Float = 2f
     def initialize(initValue: Float): Unit = {
         publicBelief = initValue
-        println(s"Public Value: $publicBelief")
     }
     
     override def getPublicValue(belief: Float, isSpeaking: Boolean): Float = {

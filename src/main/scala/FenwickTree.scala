@@ -4,11 +4,11 @@ class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean
     private val tree = Array.ofDim[Double](size + 1) //Array.fill(8)(0)
     private val scoresArr = Array.ofDim[Double](size + 1)
     private val minScore = density + (density * setValue)
-    private var curMax: Double = density * minScore
-    private var curLength: Int = density
+    private var curMax: Double = (density + 1) * minScore
+    private var curLength: Int = density + 1
     private val freqs = Array.ofDim[Double](size + 1)
     
-    for (i <- 0 until density) {
+    for (i <- 0 until (density + 1)) {
         update(i: Int, minScore: Double)
     }
     
@@ -43,7 +43,8 @@ class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean
         var high = curLength - 1
         while (low < high) {
             val mid = (low + high) / 2
-            if (query(mid) < value) low = mid + 1
+            val queryVal = query(mid)
+            if (queryVal < value) low = mid + 1
             else high = mid
         }
         low
@@ -85,10 +86,35 @@ class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean
         nodesPicked
     }
     
+    def pickRandomsInto(arr: Array[Int], indexStart: Int): Unit = {
+        var curLocalMax = curMax
+        val random = new Random
+        var i = 0
+        while (i < density) {
+            arr(i + indexStart) = findRange(random.nextDouble() * curLocalMax)
+            curLocalMax -= scoresArr(arr(i + indexStart) + 1)
+            updateTree(arr(i + indexStart), -scoresArr(arr(i + indexStart) + 1))
+            i += 1
+        }
+        
+        // Reassign the values and correct for index moved values
+        i = 0
+        while (i < density) {
+            scoresArr(arr(i + indexStart) + 1) += 1
+            updateTree(arr(i + indexStart), scoresArr(arr(i + indexStart) + 1))
+            if (countFreqs) freqs(arr(i + indexStart) + 1) += 1
+            i += 1
+        }
+        
+        curMax += minScore + density
+        curLength += 1
+        update(curLength - 1, minScore)
+    }
+    
 }
 
 
-object Main extends App {
+object FenwickTest extends App {
     val fenwickTree = new FenwickTree(5, 3, 2.5)
 //    println(fenwickTree.tree.mkString("Array(", ", ", ")"))
 //    println(fenwickTree.scoresArr.mkString("Array(", ", ", ")"))

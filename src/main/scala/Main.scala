@@ -1,8 +1,11 @@
-import SilenceEffectType.DeGroot
-import akka.actor.{ActorSystem, Props}
+import akka.actor.{ActorRef, ActorSystem, Props}
+import benchmarking.OptimizedRdtsc
 import com.typesafe.config.ConfigFactory
+import rng.distributions.BimodalDistribution
 
+import java.lang
 import scala.reflect
+import scala.util.Random
 
 // Distributions
 sealed trait Distribution {
@@ -106,20 +109,56 @@ object globalTimer {
     val timer: CustomTimer = new CustomTimer()
 }
 
-object Mains extends App {
+def estimateCPUTimerFreq(millisToWait: Long = 100L): Long = {
+    val osFreq = 1_000_000_000L
+    val cpuStart = OptimizedRdtsc.getRdtsc()
+    val osStart = System.nanoTime()
+    
+    var osEnd = 0L
+    var osElapsed = 0L
+    val osWaitTime = osFreq * millisToWait / 1000
+    while (osElapsed < osWaitTime) {
+        osEnd = System.nanoTime()
+        osElapsed = osEnd - osStart
+    }
+    val cpuEnd = OptimizedRdtsc.getRdtsc()
+    val cpuElapsed = cpuEnd - cpuStart
+    var cpuFreq = 0L
+    if (osElapsed > 0) {
+        cpuFreq = osFreq * cpuElapsed / osElapsed
+    }
+    
+    cpuFreq
+}
+
+object Main extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
+
+    val density = 13
+    val numberOfNetworks = 256
+    val numberOfAgents = 524_288 // 4_194_304 1_048_576
     
-    val density = 4
-    val numberOfNetworks = 1000
-    val numberOfAgents = 10_000
     
     globalTimer.timer.start()
+//    val densityRunner: Array[Option[ActorRef]] = new Array[Option[ActorRef]](3)
+//    var i = 0
+//    while (i < 3) {
+//        //val maxDensity = i - 1
+//        //val numberOfAgent = i
+//        densityRunner(i) = Some(system.actorOf(Props(
+//            new DensityRunner(density - 1 + i, 15, monitor, numberOfAgents, numberOfNetworks)),
+//                                               s"DensityRunner$i"))
+//        monitor ! GetDensityRunner(densityRunner(i).get)
+//        i += 1
+//    }
+    
+    
     monitor ! AddNetworks(
         agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
         agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
         distribution = Uniform,
-        saveMode = Agentless, //NeighborlessMode(Roundless) Agentless
+        saveMode = Agentless, //NeighborlessMode(Roundless) Agentless StandardLight Debug
         recencyFunction = None,
         numberOfNetworks = numberOfNetworks,
         density = density,
@@ -127,7 +166,21 @@ object Mains extends App {
         degreeDistribution = 2.5f,
         stopThreshold = 0.001f
     )
-
+    
+//    monitor ! AddNetworks(
+//        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
+//        agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
+//        distribution = Uniform,
+//        saveMode = Agentless, //NeighborlessMode(Roundless) Agentless StandardLight
+//        recencyFunction = None,
+//        numberOfNetworks = numberOfNetworks,
+//        density = 3,
+//        iterationLimit = 1000,
+//        degreeDistribution = 2.5f,
+//        stopThreshold = 0.001f
+//        )
+    
+    //DatabaseManager.exportToMaudeTXT(s"${numberOfAgents}_agents_memoryless.txt", numberOfAgents)
 //    val customRun = AddSpecificNetwork(
 //        Array(
 //            AgentInitialState("Agent1", 1f, 0.2, 0.0, SilenceStrategyType.Majority, SilenceEffectType.Memoryless),
@@ -155,7 +208,7 @@ object Mains extends App {
 //            Neighbors("Agent5", "Agent4", 0.4f, CognitiveBiasType.DeGroot),
 //        ),
 //        CustomDistribution,
-//        Full,
+//        Debug,
 //        0.001f,
 //        1000,
 //        "First_try",
@@ -193,7 +246,7 @@ object Mains extends App {
 //            Neighbors("Agent4", "Agent3", inner_weak, CognitiveBiasType.DeGroot)
 //            ),
 //        CustomDistribution,
-//        Full,
+//        Debug,
 //        0.001f,
 //        1000,
 //        "First_try",

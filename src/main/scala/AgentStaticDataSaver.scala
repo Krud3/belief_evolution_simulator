@@ -6,10 +6,10 @@ import scala.collection.IndexedSeqView
 case class StaticData
 (
   networkId: UUID,
-  static: IndexedSeqView[StaticAgentData]
+  static: Array[StaticAgentData]
 )
 
-case class SendStaticAgentData(staticAgentData: IndexedSeqView[StaticAgentData])
+case class SendStaticAgentData(staticAgentData: Array[StaticAgentData])
 
 class AgentStaticDataSaver(numberOfAgents: Int, networkId: UUID) extends Actor {
     private var agentsSaved: Int = 0
@@ -20,9 +20,10 @@ class AgentStaticDataSaver(numberOfAgents: Int, networkId: UUID) extends Actor {
                 networkId,
                 staticAgentData
             )
-            agentsSaved += staticAgentData.length
+            agentsSaved += 1
             DatabaseManager.insertAgentsBatch(staticData)
             if (agentsSaved == numberOfAgents) {
+                context.parent ! ActorFinished
                 context.stop(self)
             }
         

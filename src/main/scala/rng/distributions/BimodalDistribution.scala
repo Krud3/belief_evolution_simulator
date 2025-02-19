@@ -1,3 +1,5 @@
+package rng.distributions
+
 import scala.util.Random
 
 class BimodalDistribution(peak1: Double, peak2: Double, lower: Double = 0, upper: Double = 1) {
@@ -15,7 +17,12 @@ class BimodalDistribution(peak1: Double, peak2: Double, lower: Double = 0, upper
   }
 
   def sample(): Double = {
-    if (random.nextDouble() < 0.5) sampleGaussian(peak1, stdDev1)
+    if (random.nextFloat() < 0.5f) sampleGaussian(peak1, stdDev1)
     else sampleGaussian(peak2, stdDev2)
+  }
+  
+  def sampleFloat(): Float = {
+    if (random.nextBoolean()) sampleGaussian(peak1, stdDev1).toFloat
+    else sampleGaussian(peak2, stdDev2).toFloat
   }
 }

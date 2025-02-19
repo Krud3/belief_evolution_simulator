@@ -58,7 +58,7 @@ class RoundDataCollector(tableNumber: Int, totalCollectors: Int) extends Actor {
         case AgentStatesSilent(agentStates, round) =>
             var i = 0
             while (i < agentStates.length) {
-                speakingStream.addRow(agentStates(i), round)
+                silentStream.addRow(agentStates(i), round)
                 i += 1
             }
             

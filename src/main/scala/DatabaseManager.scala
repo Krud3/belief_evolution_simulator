@@ -1,11 +1,12 @@
 import com.zaxxer.hikari.{HikariConfig, HikariDataSource}
+import odbf.Decoder
 import org.postgresql.copy.CopyManager
 import org.postgresql.core.BaseConnection
 
-import java.io.ByteArrayInputStream
+import java.io.{ByteArrayInputStream, PrintWriter}
 import java.sql.{Connection, PreparedStatement, Statement}
 import java.util.UUID
-import scala.collection.IndexedSeqView
+import scala.collection.{IndexedSeqView, mutable}
 import scala.collection.mutable.ArrayBuffer
 
 
@@ -16,8 +17,8 @@ object DatabaseManager {
     hikariConfig.setPassword("postgres")
     
     // Parallel
-    hikariConfig.setMaximumPoolSize(32) // Slightly higher than CPU cores
-    hikariConfig.setMinimumIdle(16)     // Half of max pool size
+    hikariConfig.setMaximumPoolSize(32)
+    hikariConfig.setMinimumIdle(16)
     
     // Set the maximum lifetime of a connection in the pool.
     hikariConfig.setMaxLifetime(3_600_000) // 1 hour
@@ -193,7 +194,7 @@ object DatabaseManager {
             stmt = conn.prepareStatement(sql)
             
             var i = 0
-            val size = agents.static.size
+            val size = agents.static.length
             while (i < size) {
                 val agent = agents.static(i)
                 stmt.setObject(1, agent.id)
@@ -220,7 +221,7 @@ object DatabaseManager {
     }
     
     // ToDo optimize insert to maybe use copy or batched concurrency
-    def insertNeighborsBatch(networkStructures: IndexedSeqView[NeighborStructure]): Unit = {
+    def insertNeighborsBatch(networkStructures: ArrayBuffer[NeighborStructure]): Unit = {
         val conn = dataSource.getConnection
         try {
             val sql =
@@ -375,108 +376,512 @@ object DatabaseManager {
             stmt.setBoolean(2, simulationOutcome)
             stmt.setString(3, id.toString)
             stmt.executeUpdate()
-            stmt.close()
         } catch {
             case e: Exception => e.printStackTrace()
         } finally {
-            conn.close()
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
         }
     }
     
-    //Queries
-//    def reRunSpecificNetwork(id: UUID, agentType: AgentType): Array[AgentInitialState] = {
-//        val conn = getConnection
-//        var stmt: PreparedStatement = null
-//        try {
-//            val sql =
-//                s"""
-//                WITH InitialBeliefs AS (
-//                    SELECT
-//                        rd.agent_id,
-//                        rd.belief AS initial_belief
-//                    FROM
-//                        public.combined_round_data rd
-//                    JOIN
-//                        public.agents a ON rd.agent_id = a.id
-//                    WHERE
-//                        a.network_id = ?::uuid
-//                        AND rd.round = 0
-//                ),
-//                AgentTypes AS (
-//                    SELECT
-//                        id AS agent_id,
-//                        cause_of_silence,
-//                        effect_of_silence,
-//                        belief_update_method,
-//                        tolerance_radius,
-//						tol_offset
-//                    FROM
-//                        public.agents
-//                    WHERE
-//                        network_id = ?::uuid
-//                ),
-//                Neighbors AS (
-//                    SELECT
-//                        ns.target AS agent_id,
-//                        STRING_AGG(ns.source::text, ',') AS neighbor_ids,
-//                        STRING_AGG(ns.value::text, ',') AS neighbor_values
-//                    FROM
-//                        public.networks_structure ns
-//                    JOIN
-//                        public.agents a ON ns.target = a.id
-//                    WHERE
-//                        a.network_id = ?::uuid
-//                    GROUP BY
-//                        ns.target
-//                )
-//                SELECT
-//                    ib.agent_id,
-//                    ib.initial_belief,
-//                    at.cause_of_silence,
-//                    at.effect_of_silence,
-//                    at.belief_update_method,
-//                    at.tolerance_radius,
-//					at.tol_offset,
-//                    n.neighbor_ids,
-//                    n.neighbor_values
-//                FROM
-//                    InitialBeliefs ib
-//                JOIN
-//                    AgentTypes at ON ib.agent_id = at.agent_id
-//                LEFT JOIN
-//                    Neighbors n ON ib.agent_id = n.agent_id
-//                ORDER BY
-//                    ib.agent_id;
-//                """
-//            stmt = conn.prepareStatement(sql)
-//            stmt.setString(1, id.toString)
-//            stmt.setString(2, id.toString)
-//            stmt.setString(3, id.toString)
-//            val resultSet = stmt.executeQuery()
-//            
-//            val agentInitialStates = ArrayBuffer[AgentInitialState]()
-//            while (resultSet.next()) {
-//                val agentId = resultSet.getString("agent_id")
-//                val initialBelief = resultSet.getFloat("initial_belief")
-//                val neighborIds = Option(resultSet.getString("neighbor_ids")).getOrElse("").split(",").filter(_.nonEmpty)
-//                val neighborValues = Option(resultSet.getString("neighbor_values")).getOrElse("").split(",").filter(_.nonEmpty).map(_.toFloat)
-//                val neighbors = neighborIds.zip(neighborValues)
-//                val toleranceRadius = resultSet.getFloat("tolerance_radius")
-//                val toleranceOffset = resultSet.getFloat("tol_offset")
-//                
-//                val agentInitialState = AgentInitialState(agentId, initialBelief, agentType, neighbors, toleranceRadius)
-//                
-//                agentInitialStates += agentInitialState
-//            }
-//            
-//            return agentInitialStates.toArray
-//        } catch {
-//            case e: Exception => e.printStackTrace()
-//        } finally {
-//            if (stmt != null) stmt.close()
-//            if (conn != null) conn.close()
-//        }
-//        Array.empty[AgentInitialState]
-//    }
+    // Queries
+    case class RunQueryResult(numberOfNetworks: Int, iterationLimit: Int, stopThreshold: Float, 
+        distribution: String, density: Option[Int], degreeDistribution: Option[Float])
+    
+    def getRun(runId: Int): Option[RunQueryResult] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql = """
+                  |SELECT * FROM runs LEFT JOIN
+                  |generated_run_parameters on runs.id = generated_run_parameters.run_id
+                  |WHERE id = ?;
+                  |""".stripMargin
+            stmt = conn.prepareStatement(sql)
+            stmt.setInt(1, runId)
+            val queryResult = stmt.executeQuery()
+            if (queryResult.next()) {
+                return Some(RunQueryResult(
+                    queryResult.getInt("number_of_networks"),
+                    queryResult.getInt("iteration_limit"),
+                    queryResult.getFloat("stop_threshold"),
+                    queryResult.getString("initial_distribution"),
+                    Option(queryResult.getObject("density")).map(_.toString.toInt),
+                    Option(queryResult.getObject("degree_distribution")).map(_.toString.toFloat)
+                    ))
+            }
+        } catch {
+            case e: Exception =>
+                e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getRunInfo(networkId: UUID): Option[(String, Option[Int], Option[Float])] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql =
+                """
+                  |SELECT initial_distribution, density, degree_distribution
+                  |    FROM runs
+                  |LEFT JOIN
+                  |    generated_run_parameters on runs.id = generated_run_parameters.run_id
+                  |WHERE id = (SELECT run_id FROM networks WHERE id = CAST(? AS uuid));
+                  |""".stripMargin
+            stmt.setObject(1, networkId)
+            stmt = conn.prepareStatement(sql)
+            val queryResult = stmt.executeQuery()
+            if (queryResult.next()) {
+                return Some(
+                    (queryResult.getString("initial_distribution"),
+                      Option(queryResult.getObject("density")).map(_.toString.toInt),
+                      Option(queryResult.getObject("degree_distribution")).map(_.toString.toInt)))
+            }
+            
+        } catch {
+            case e: Exception =>
+                e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getNetworks(runId: Int, numberOfNetworks: Int): Option[Array[UUID]] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql = s"SELECT id FROM networks WHERE run_id = ?"
+            stmt = conn.prepareStatement(sql)
+            stmt.setInt(1, runId)
+            val queryResult = stmt.executeQuery()
+            val networkIdArray = new Array[UUID](numberOfNetworks)
+            var i = 0
+            while (queryResult.next()) {
+                networkIdArray(i) = queryResult.getObject(1, classOf[UUID])
+                i += 1
+            }
+        } catch {
+            case e: Exception => e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getAgents(networkId: UUID, numberOfAgents: Int): Option[
+      Array[(UUID, Float, Float, Option[Float], Option[Integer])]] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql =
+                """
+                  |SELECT id, tolerance_radius, tol_offset, expression_threshold, open_mindedness
+                  |FROM agents
+                  |WHERE network_id = = CAST(? AS uuid)
+                  |""".stripMargin
+            
+            stmt = conn.prepareStatement(sql)
+            stmt.setObject(1, networkId)
+            val queryResult = stmt.executeQuery()
+            val resultArray = new Array[(UUID, Float, Float, Option[Float], Option[Integer])](numberOfAgents)
+            var i = 0
+            while (queryResult.next()) {
+                resultArray(i) = (
+                  queryResult.getObject(1, classOf[UUID]),
+                  queryResult.getFloat(2),
+                  queryResult.getFloat(3),
+                  Option(queryResult.getObject(4)).map(_.toString.toFloat),
+                  Option(queryResult.getObject(5)).map(_.toString.toInt)
+                )
+                i += 1
+            }
+            if (i != 0) return Some(resultArray) 
+        } catch {
+            case e: Exception => e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getAgentsWithState(networkId: UUID, numberOfAgents: Int): Option[
+      Array[(UUID, Float, Float, Option[Float], Option[Integer],
+        Float, Option[Array[Byte]])]] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql =
+                """
+                  |SELECT a.id,
+                  |    tolerance_radius, 
+                  |    tol_offset, 
+                  |    expression_threshold, 
+                  |    open_mindedness,
+                  |	   belief,
+                  |	   state_data
+                  |FROM agents a
+                  |JOIN agent_states_speaking s ON a.id = s.agent_id
+                  |WHERE a.network_id = CAST(? AS uuid) AND round = 0; 
+                  |""".stripMargin
+            
+            stmt = conn.prepareStatement(sql)
+            stmt.setObject(1, networkId)
+            val queryResult = stmt.executeQuery()
+            val resultArray = new Array[(UUID, Float, Float, Option[Float], Option[Integer], 
+              Float, Option[Array[Byte]])](numberOfAgents)
+            var i = 0
+            while (queryResult.next()) {
+                val bytes = queryResult.getBytes(7)
+                resultArray(i) = (
+                  queryResult.getObject(1, classOf[UUID]),
+                  queryResult.getFloat(2),
+                  queryResult.getFloat(3),
+                  Option(queryResult.getObject(4)).map(_.toString.toFloat),
+                  Option(queryResult.getObject(5)).map(_.toString.toInt),
+                  queryResult.getFloat(6),
+                  Option(queryResult.getBytes(7))
+                )
+                i += 1
+            }
+            if (i != 0) return Some(resultArray)
+        } catch {
+            case e: Exception => e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getNeighbors(networkId: UUID, numberOfAgents: Int): Option[Array[(UUID, UUID, Float, 
+      Option[CognitiveBiasType])]] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql =
+                """
+                  |SELECT n.*
+                  |FROM agents a
+                  |JOIN neighbors n ON a.id = n.source
+                  |WHERE a.network_id = CAST(? AS uuid);
+                  |
+                  |""".stripMargin
+            
+            stmt = conn.prepareStatement(sql)
+            stmt.setObject(1, networkId)
+            val queryResult = stmt.executeQuery()
+            val resultArray = new ArrayBuffer[(UUID, UUID, Float, Option[CognitiveBiasType])](numberOfAgents)
+            var i = 0
+            while (queryResult.next()) {
+                val bytes = queryResult.getBytes(7)
+                resultArray(i) = (
+                  queryResult.getObject(1, classOf[UUID]),
+                  queryResult.getObject(2, classOf[UUID]),
+                  queryResult.getFloat(3),
+                  CognitiveBiases.fromString(queryResult.getString(4))
+                )
+                i += 1
+            }
+            if (i != 0) return Some(resultArray.toArray)
+        } catch {
+            case e: Exception => e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getAgentsWithState(runId: Int, numberOfAgents: Int, limit: Int, offset: Int): Option[
+      Array[AgentStateLoad]] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql =
+                """
+                  |WITH limited_networks AS (
+                  |    SELECT n.id
+                  |    FROM networks n
+                  |    WHERE run_id = ?
+                  |    LIMIT ?
+                  |    OFFSET ?
+                  |)
+                  |SELECT (n.id) as network_id,
+                  |    a.id, 
+                  |    belief,
+                  |    tolerance_radius, 
+                  |    tol_offset, 
+                  |    state_data,
+                  |    expression_threshold, 
+                  |    open_mindedness
+                  |FROM agents a
+                  |JOIN agent_states_speaking s ON a.id = s.agent_id AND round = 0
+                  |JOIN networks n ON n.id = a.network_id
+                  |WHERE n.id IN (SELECT id FROM limited_networks)
+                  |ORDER BY n.id;
+                  |""".stripMargin
+            
+            stmt = conn.prepareStatement(sql)
+            stmt.setInt(1, runId)
+            val queryResult = stmt.executeQuery()
+            val resultArray = new Array[AgentStateLoad](numberOfAgents * limit)
+            var i = 0
+            while (queryResult.next()) {
+                val bytes = queryResult.getBytes(7)
+                resultArray(i) = AgentStateLoad(
+                  queryResult.getObject(1, classOf[UUID]),
+                  queryResult.getObject(2, classOf[UUID]),
+                  queryResult.getFloat(3),
+                  queryResult.getFloat(4),
+                  queryResult.getFloat(5),
+                  Option(queryResult.getBytes(6)),
+                  Option(queryResult.getObject(7)).map(_.toString.toFloat),
+                  Option(queryResult.getObject(8)).map(_.toString.toInt)
+                )
+                i += 1
+            }
+            if (i != 0) return Some(resultArray)
+        } catch {
+            case e: Exception => e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def getNeighbors(runId: Int, numberOfAgents: Int, limit: Int, offset: Int): Option[Array[NeighborsLoad]] = {
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+        try {
+            val sql =
+                """
+                  |WITH limited_networks AS (
+                  |    SELECT net.id
+                  |    FROM networks net
+                  |    WHERE run_id = ?
+                  |    LIMIT ?
+                  |	   OFFSET ?
+                  |)
+                  |SELECT net.id as network_id, n.*
+                  |FROM agents a
+                  |JOIN neighbors n ON a.id = n.source
+                  |JOIN networks net ON net.id = a.network_id
+                  |JOIN limited_networks ln ON ln.id = net.id
+                  |ORDER BY net.id, a.id;
+                  |""".stripMargin
+            
+            stmt = conn.prepareStatement(sql)
+            stmt.setInt(1, runId)
+            stmt.setInt(2, limit)
+            stmt.setInt(3, offset)
+            val queryResult = stmt.executeQuery()
+            val resultArray = new ArrayBuffer[NeighborsLoad](numberOfAgents * 2)
+            var i = 0
+            while (queryResult.next()) {
+                val bytes = queryResult.getBytes(7)
+                resultArray.addOne(NeighborsLoad(
+                    queryResult.getObject(1, classOf[UUID]),
+                    queryResult.getObject(2, classOf[UUID]),
+                    queryResult.getObject(3, classOf[UUID]),
+                    queryResult.getFloat(4),
+                    CognitiveBiases.fromString(queryResult.getString(5)).get
+                ))
+                i += 1
+            }
+            if (i != 0) return Some(resultArray.toArray)
+        } catch {
+            case e: Exception => e.printStackTrace()
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+        }
+        None
+    }
+    
+    def exportToMaudeTXT(name: String, numberOfAgents: Int): Unit = {
+        case class AgentRoundQuery(
+            agentId: UUID,
+            name: String,
+            numberOfNeighbors: Int,
+            toleranceRadius: Float,
+            tolOffset: Float,
+            //        silenceStrategy: String,
+            //        silenceEffect: String,
+            //        beliefUpdateMethod: String,
+            //        expressionThreshold: Option[Float],
+            //        openMindedness: Option[Int],
+            round: Int,
+            belief: Float,
+            stateData: Array[Byte],
+            isSpeaking: Boolean
+        )
+        val conn = getConnection
+        var stmt: PreparedStatement = null
+
+        val ids = mutable.HashMap[String, Int]()
+        val writer = new PrintWriter(name)
+        try {
+            val sql = """
+                        |WITH RECURSIVE latest_run AS (
+                        |    SELECT id 
+                        |    FROM runs 
+                        |    ORDER BY id DESC 
+                        |    LIMIT 1
+                        |),
+                        |latest_network AS (
+                        |    SELECT id as network_id
+                        |    FROM networks 
+                        |    WHERE run_id = (SELECT id FROM latest_run)
+                        |    ORDER BY final_round DESC
+                        |    LIMIT 1
+                        |),
+                        |agent_states AS (
+                        |    SELECT 
+                        |        agent_id,
+                        |        round,
+                        |        belief,
+                        |        state_data,
+                        |        true as speaking
+                        |    FROM agent_states_speaking
+                        |    WHERE agent_id IN (
+                        |        SELECT id 
+                        |        FROM agents 
+                        |        WHERE network_id = (SELECT network_id FROM latest_network)
+                        |    )
+                        |    UNION ALL
+                        |    SELECT 
+                        |        agent_id,
+                        |        round,
+                        |        belief,
+                        |        state_data,
+                        |        false as speaking
+                        |    FROM agent_states_silent
+                        |    WHERE agent_id IN (
+                        |        SELECT id 
+                        |        FROM agents 
+                        |        WHERE network_id = (SELECT network_id FROM latest_network)
+                        |    )
+                        |)
+                        |SELECT 
+                        |    a.id as agent_id,
+                        |    a.name,
+                        |    a.number_of_neighbors,
+                        |    a.tolerance_radius,
+                        |    a.tol_offset,
+                        |    a.silence_strategy,
+                        |    a.silence_effect,
+                        |    a.belief_update_method,
+                        |    a.expression_threshold,
+                        |    a.open_mindedness,
+                        |    s.round,
+                        |    s.belief,
+                        |    s.state_data,
+                        |    s.speaking
+                        |FROM latest_network ln
+                        |JOIN agents a ON a.network_id = ln.network_id
+                        |JOIN agent_states s ON s.agent_id = a.id
+                        |ORDER BY s.round, a.id;
+                        |""".stripMargin
+            
+            stmt = conn.prepareStatement(sql)
+            val rs = stmt.executeQuery()
+            
+            var printResults = true
+            var i = 0
+            writer.print("< ")
+            while (rs.next()) {
+                val result = AgentRoundQuery(
+                    agentId = UUID.fromString(rs.getString("agent_id")),
+                    name = Option(rs.getString("name")).getOrElse(""),
+                    numberOfNeighbors = rs.getInt("number_of_neighbors"),
+                    toleranceRadius = rs.getFloat("tolerance_radius"),
+                    tolOffset = rs.getFloat("tol_offset"),
+//                    silenceStrategy = rs.getString("silence_strategy"),
+//                    silenceEffect = rs.getString("silence_effect"),
+//                    beliefUpdateMethod = rs.getString("belief_update_method"),
+//                    expressionThreshold = Option(rs.getFloat("expression_threshold")).filterNot(_ => rs.wasNull()),
+//                    openMindedness = Option(rs.getInt("open_mindedness")).filterNot(_ => rs.wasNull()),
+                    round = rs.getInt("round"),
+                    belief = rs.getFloat("belief"),
+                    stateData = rs.getBytes("state_data"),
+                    isSpeaking = rs.getBoolean("speaking")
+                    )
+                
+                if (i == (numberOfAgents - 1)) {
+                    if (printResults) {
+                        writer.print(
+                            s"${i + 1} : [ " +
+                              s"${result.belief}, " +
+                              s"${result.isSpeaking}, " +
+                              s"${if (rs.getString("silence_effect") == "Memory") Decoder.decode(result.stateData)(0) + ", " else ""}" +
+                              s"${result.toleranceRadius}] >"
+                            )
+                        
+                    }
+                    printResults = false
+                }
+                
+                if (printResults) {
+                    writer.print(s"${i + 1} : [ ${result.belief}, ${result.isSpeaking}, " +
+                                   s"${if (rs.getString("silence_effect") == "Memory") Decoder.decode(result.stateData)(0) + ", " else ""}" +
+                                   s"${result.toleranceRadius}], ")
+                }
+                
+                ids.put(result.agentId.toString, i + 1)
+                i = (i + 1) % numberOfAgents
+            }
+            
+            val neighborSQL =
+                """
+                  |WITH RECURSIVE latest_run AS (
+                  |    SELECT id
+                  |    FROM runs
+                  |    ORDER BY id DESC
+                  |    LIMIT 1
+                  |),
+                  |latest_network AS (
+                  |    SELECT id as network_id
+                  |    FROM networks
+                  |    WHERE run_id = (SELECT id FROM latest_run)
+                  |    ORDER BY final_round DESC
+                  |    LIMIT 1
+                  |)
+                  |SELECT * FROM neighbors WHERE source IN (
+                  |        SELECT id
+                  |        FROM agents
+                  |        WHERE network_id = (SELECT network_id FROM latest_network)
+                  |    )
+                  |""".stripMargin
+            stmt = conn.prepareStatement(neighborSQL)
+            val neighbors = stmt.executeQuery()
+            neighbors.next()
+            writer.print(s"\n\n< (${ids(neighbors.getString(1))} , " +
+                           s"${ids(neighbors.getString(2))}) : " +
+                           s"${neighbors.getFloat(3)} >")
+            while (neighbors.next()) {
+                writer.print(s", < (${ids(neighbors.getString(1))} , " +
+                               s"${ids(neighbors.getString(2))}) : " +
+                               s"${neighbors.getFloat(3)} >")
+            }
+            
+        } catch {
+            case e: Exception =>
+                e.printStackTrace()
+                throw e
+        } finally {
+            if (stmt != null) stmt.close()
+            if (conn != null) conn.close()
+            writer.close()
+        }
+    }
     
 }

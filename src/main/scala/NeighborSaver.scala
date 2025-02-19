@@ -5,7 +5,7 @@ import java.util.UUID
 import scala.collection.IndexedSeqView
 
 // Messages
-case class SendNeighbors(neighborStructures: IndexedSeqView[NeighborStructure]) // Agent -> NetworkSaver
+case class SendNeighbors(neighborStructures: ArrayBuffer[NeighborStructure]) // Agent -> NetworkSaver
 
 // Actor
 
@@ -22,7 +22,7 @@ class NeighborSaver(numberOfAgents: Int) extends Actor {
     def receive: Receive = {
         case SendNeighbors(neighborStructures) =>
             DatabaseManager.insertNeighborsBatch(neighborStructures)
-            agentsSaved += neighborStructures.length
+            agentsSaved += 1
             if (agentsSaved == numberOfAgents) {
                 context.stop(self)
             }

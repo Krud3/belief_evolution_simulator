@@ -8,6 +8,7 @@ sealed trait SaveMode {
     def includesNeighbors: Boolean
     def includesNetworks: Boolean
     def includesAgentTypes: Boolean
+    def savesToDB: Boolean
 }
 
 // Neighborless modifier
@@ -22,6 +23,7 @@ case class NeighborlessMode(baseMode: SaveMode) extends SaveMode {
     def includesNeighbors: Boolean = false
     def includesNetworks: Boolean = baseMode.includesNetworks
     def includesAgentTypes: Boolean = baseMode.includesAgentTypes
+    def savesToDB: Boolean = baseMode.savesToDB
 }
 
 sealed trait BaseMode extends SaveMode {
@@ -29,7 +31,7 @@ sealed trait BaseMode extends SaveMode {
     def includesNeighbors: Boolean = true
 }
 
-// Save modes implementation
+// Save modes implementations
 case object Full extends BaseMode {
     def includesFirstRound: Boolean = true
     def includesRounds: Boolean = true
@@ -37,6 +39,7 @@ case object Full extends BaseMode {
     def includesAgents: Boolean = true
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = true
+    def savesToDB: Boolean = true
 }
 
 case class RoundSampling(sampleInterval: Int) extends BaseMode {
@@ -47,8 +50,10 @@ case class RoundSampling(sampleInterval: Int) extends BaseMode {
     def includesAgents: Boolean = true
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = true
+    def savesToDB: Boolean = true
 }
 
+// Re-create and compare final round values
 case object Standard extends BaseMode {
     def includesFirstRound: Boolean = true
     def includesRounds: Boolean = false
@@ -56,8 +61,10 @@ case object Standard extends BaseMode {
     def includesAgents: Boolean = true
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = true
+    def savesToDB: Boolean = true
 }
 
+// Re-create a network
 case object StandardLight extends BaseMode {
     def includesFirstRound: Boolean = true
     def includesRounds: Boolean = false
@@ -65,6 +72,7 @@ case object StandardLight extends BaseMode {
     def includesAgents: Boolean = true
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = true
+    def savesToDB: Boolean = true
 }
 
 case object Roundless extends BaseMode {
@@ -74,6 +82,7 @@ case object Roundless extends BaseMode {
     def includesAgents: Boolean = true
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = true
+    def savesToDB: Boolean = true
 }
 
 case object AgentlessTyped extends BaseMode {
@@ -84,6 +93,7 @@ case object AgentlessTyped extends BaseMode {
     override def includesNeighbors: Boolean = false  
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = true
+    def savesToDB: Boolean = true
 }
 
 case object Agentless extends BaseMode {
@@ -94,6 +104,7 @@ case object Agentless extends BaseMode {
     override def includesNeighbors: Boolean = false  
     def includesNetworks: Boolean = true
     def includesAgentTypes: Boolean = false
+    def savesToDB: Boolean = true
 }
 
 case object Performance extends BaseMode {
@@ -104,6 +115,18 @@ case object Performance extends BaseMode {
     override def includesNeighbors: Boolean = false
     def includesNetworks: Boolean = false
     def includesAgentTypes: Boolean = false
+    def savesToDB: Boolean = true
+}
+
+case object Debug extends BaseMode {
+    def includesFirstRound: Boolean = false
+    def includesRounds: Boolean = false
+    def includesLastRound: Boolean = false
+    def includesAgents: Boolean = false
+    override def includesNeighbors: Boolean = false
+    def includesNetworks: Boolean = false
+    def includesAgentTypes: Boolean = false
+    def savesToDB: Boolean = false
 }
 
 object SaveMode {

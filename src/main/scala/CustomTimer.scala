@@ -39,7 +39,7 @@ class CustomMultiTimer {
         times.update(key, (Some(System.nanoTime()), None))
     }
     
-    def stop(key: String, timeUnit: TimeUnit = TimeUnit.MILLISECONDS, msg: String = ""): Long = {
+    def stop(key: String, timeUnit: TimeUnit = TimeUnit.MILLISECONDS, msg: String = "", printDuration: Boolean = true): Long = {
         val (startOpt, _) = times.getOrElse(key, throw new IllegalStateException("Timer was not started"))
         val endTime = System.nanoTime()
         times.update(key, (startOpt, Some(endTime)))
@@ -47,7 +47,7 @@ class CustomMultiTimer {
         val duration = endTime - startOpt.getOrElse(throw new IllegalStateException("Timer was not started"))
         val durationInUnit = getTimeElapsed(duration, timeUnit)
         val formattedDuration = formatDuration(durationInUnit, timeUnit)
-        println(s"$key$msg: $formattedDuration")
+        if (printDuration) println(s"$key$msg: $formattedDuration")
         duration
     }
     
