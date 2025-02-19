@@ -7,12 +7,13 @@ import scala.collection.mutable.ArrayBuffer
  * Table entries:
  * [(id: u8, dataType: u8, length: u16, name: bytes)]
  * ids from [0-254] 255 reserved for id not found
- * dataType from [0-254] 255 reserved for data type not found
+ * dataType from [0-254] 255 reserved for data type not found (0 int, 1 float)
  * length(in Bytes) from [0 - 65534] 65535 reserved for out of bounds
  * name String UTF8 up to 128 characters
  */
-class EncodingTable {
+object EncodingTable {
     var tableEntries: ArrayBuffer[(Byte, Byte, Short, String)] = ArrayBuffer.empty
+    initializeWithDefaults()
     
     def addEntry(id: Byte, dataType: Byte, length: Short, name: String): Unit = {
         if (name.length > 128) throw Exception(StringIndexOutOfBoundsException())
@@ -22,7 +23,7 @@ class EncodingTable {
     def getLength(id: Byte): Short = {
         var i = 0
         while (i < tableEntries.length) {
-            if (tableEntries(i)._1 == id) return tableEntries(i)._3
+            if (id == tableEntries(i)._1) return tableEntries(i)._3
             i += 1
         }
         -1
@@ -35,6 +36,15 @@ class EncodingTable {
             i += 1
         }
         -1
+    }
+    
+    def getEntry(id: Byte): (Byte, Byte, Short, String) = {
+        var i = 0
+        while (i < tableEntries.length) {
+            if (id == tableEntries(i)._1) return tableEntries(i)
+            i += 1
+        }
+        (-1, -1, -1, "")
     }
     
     def saveToDatabase(): Unit = {

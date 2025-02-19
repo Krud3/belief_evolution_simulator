@@ -10,12 +10,10 @@ import java.nio.ByteOrder
  */
 class Encoder(capacity: Int = 15) { 
     val buffer = ByteBuffer.allocate(capacity).order(ByteOrder.LITTLE_ENDIAN)
-    val encodingTable = EncodingTable()
-    encodingTable.initializeWithDefaults()
     
     @inline
     def encode(name: String, value: AnyVal): Unit = {
-        buffer.put(encodingTable.getId(name))
+        buffer.put(EncodingTable.getId(name))
         value match {
             case f: Float => buffer.putFloat(f)
             case i: Int => buffer.putInt(i)
@@ -24,12 +22,12 @@ class Encoder(capacity: Int = 15) {
     
     @inline
     def encodeFloat(name: String, value: Float): Unit = {
-        buffer.put(encodingTable.getId(name)).putFloat(value)
+        buffer.put(EncodingTable.getId(name)).putFloat(value)
     }
     
     @inline
     def encodeInt(name: String, value: Int): Unit = {
-        buffer.put(encodingTable.getId(name)).putInt(value)
+        buffer.put(EncodingTable.getId(name)).putInt(value)
     }
     
     @inline
@@ -38,7 +36,10 @@ class Encoder(capacity: Int = 15) {
     @inline
     def getBytes: ByteBuffer = {
         buffer.flip()
-        buffer.slice()
+        val copy = ByteBuffer.allocate(buffer.remaining()).order(ByteOrder.LITTLE_ENDIAN)
+        copy.put(buffer.duplicate())
+        copy.flip()
+        copy
     }
 }
 
@@ -49,9 +50,7 @@ class Encoder(capacity: Int = 15) {
  * [table_id: u8][value: 0-65535 bytes]
  */
 class EncoderSafe {
-    var buffer: ByteBuffer = ByteBuffer.allocate(15).order(ByteOrder.LITTLE_ENDIAN) 
-    var encodingTable: EncodingTable = EncodingTable()
-    encodingTable.initializeWithDefaults()
+    var buffer: ByteBuffer = ByteBuffer.allocate(15).order(ByteOrder.LITTLE_ENDIAN)
     
     def reSize(): Unit = {
         val newBuffer = ByteBuffer.allocate(buffer.capacity * 2).order(ByteOrder.LITTLE_ENDIAN)
@@ -61,7 +60,7 @@ class EncoderSafe {
     }
     
     def encode(id: Byte, value: AnyVal): Unit = {
-        val valueLength = encodingTable.getLength(id)
+        val valueLength = EncodingTable.getLength(id)
         if (valueLength == -1) throw new Exception(s"Invalid id: $id")
         
         if (buffer.remaining() < 1 + valueLength) reSize()
