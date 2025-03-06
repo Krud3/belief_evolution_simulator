@@ -1,0 +1,3 @@
+LIBRARY rdtsc
+EXPORTS
+    Java_benchmarking_RdtscNative_rdtscNative

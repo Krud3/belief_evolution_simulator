@@ -135,9 +135,9 @@ object Main extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
 
-    val density = 13
-    val numberOfNetworks = 256
-    val numberOfAgents = 524_288 // 4_194_304 1_048_576
+    val density = 4
+    val numberOfNetworks = 1
+    val numberOfAgents = 10 // 4_194_304 1_048_576
     
     
     globalTimer.timer.start()
@@ -158,7 +158,7 @@ object Main extends App {
         agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
         agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
         distribution = Uniform,
-        saveMode = Agentless, //NeighborlessMode(Roundless) Agentless StandardLight Debug
+        saveMode = Debug, //NeighborlessMode(Roundless) Agentless StandardLight Debug
         recencyFunction = None,
         numberOfNetworks = numberOfNetworks,
         density = density,

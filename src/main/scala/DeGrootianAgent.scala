@@ -3,6 +3,7 @@ import akka.util.Timeout
 import datastructures.ArrayListInt
 import odbf.Encoder
 
+import java.lang
 import java.util.UUID
 import scala.util.Random
 import scala.concurrent.duration.*
@@ -167,23 +168,43 @@ class Agent(
         var existsStableAgent = true
         var i = startsAt
         var sum0, sum1, sum2, sum3 = 0f
+        val species: VectorSpecies[lang.Float] = FloatVector.SPECIES_512
+        val speciesInt: VectorSpecies[lang.Integer] = IntVector.SPECIES_512
+        var sum = FloatVector.zero(species)
         while (i < (startsAt + numberOfAgents)) {
             // Zero out the sums
-            sum0 = 0f; sum1 = 0f; sum2 = 0f; sum3 = 0f
+            sum0 = 0f; sum1 = 0f; sum2 = 0f; sum3 = 0f; sum = FloatVector.zero(species)
             val hasMem = if (hasMemory(i)) 1 else 0
             val initialBelief = belief(i)
+            // Note that currently tolRadius(i) = originalRadius(i) + originalOffset(i)
+            // and tolOffset(i) = originalRadius(i) - originalOffset(i)
+            val upper = initialBelief + tolRadius(i)
+            val lower = initialBelief + tolOffset(i)
             
             var j = if (i > 0) indexOffset(i - 1) else 0
+//            val endLoop = indexOffset(i) / 8
+//            while (j < endLoop) {
+//                val indexVector = IntVector.fromArray(speciesInt, neighborsRefs, j)
+//                val beliefVector = FloatVector.fromArray(
+//                    species,
+//                    readBeliefBuffer, // source array
+//                    0, // offset in source array
+//                    indexVector // our vector of indices
+//                    )
+//                indexVector.
+//                j += species.length()
+//            }
+            
             while (j < (indexOffset(i) - 3)) {
-                val b0: Float = readBeliefBuffer(neighborsRefs(j))
-                val b1: Float = readBeliefBuffer(neighborsRefs(j + 1))
-                val b2: Float = readBeliefBuffer(neighborsRefs(j + 2))
-                val b3: Float = readBeliefBuffer(neighborsRefs(j + 3))
+                val b0: Float = readBeliefBuffer(neighborsRefs(j)) - initialBelief
+                val b1: Float = readBeliefBuffer(neighborsRefs(j + 1)) - initialBelief
+                val b2: Float = readBeliefBuffer(neighborsRefs(j + 2)) - initialBelief
+                val b3: Float = readBeliefBuffer(neighborsRefs(j + 3)) - initialBelief
 
-                val bias0: Float = neighborBiases(j)(b0 - initialBelief)
-                val bias1: Float = neighborBiases(j + 1)(b1 - initialBelief)
-                val bias2: Float = neighborBiases(j + 2)(b2 - initialBelief)
-                val bias3: Float = neighborBiases(j + 3)(b3 - initialBelief)
+                val bias0: Float = neighborBiases(j)(b0)
+                val bias1: Float = neighborBiases(j + 1)(b1)
+                val bias2: Float = neighborBiases(j + 2)(b2)
+                val bias3: Float = neighborBiases(j + 3)(b3)
 
                 val speaking0: Float = readSpeakingBuffer.getStateAsFloatWithMemory(neighborsRefs(j), hasMem)
                 val speaking1: Float = readSpeakingBuffer.getStateAsFloatWithMemory(neighborsRefs(j + 1), hasMem)
@@ -196,10 +217,10 @@ class Agent(
                 sum2 += speaking2 * bias2 * neighborsWeights(j + 2)
                 sum3 += speaking3 * bias3 * neighborsWeights(j + 3)
 
-                if (speaking0 == 1f) congruent(b0, i)
-                if (speaking1 == 1f) congruent(b1, i)
-                if (speaking2 == 1f) congruent(b2, i)
-                if (speaking3 == 1f) congruent(b3, i)
+                if (speaking0 == 1f) congruent(b0, upper, lower)
+                if (speaking1 == 1f) congruent(b1, upper, lower)
+                if (speaking2 == 1f) congruent(b2, upper, lower)
+                if (speaking3 == 1f) congruent(b3, upper, lower)
 
                 j += 4
             }
@@ -208,7 +229,7 @@ class Agent(
                 val b: Float = readBeliefBuffer(neighborsRefs(j))
                 val bias: Float = neighborBiases(j)(b - initialBelief)
                 val speaking: Int = readSpeakingBuffer.getStateAsIntWithMemory(neighborsRefs(j), hasMem)
-                if (speaking == 1) congruent(b, i)
+                if (speaking == 1) congruent(b, upper, lower)
                 
                 belief(i) += speaking * bias * neighborsWeights(j)
                 
@@ -261,6 +282,13 @@ class Agent(
         RoundRouter.getRoute ! AgentStatesSilent(roundDataSilent, round)
     }
     
+    inline final def congruent4(neighborBelief: Float, upper: Float, lower: Float): Unit = {
+        if ((belief(i) - tolOffset(i)) <= neighborBelief && neighborBelief <= (belief(i) + tolRadius(i)))
+            inFavor(i) += 1
+        else
+            against(i) += 1
+    }
+    
     inline final def congruent3(neighborBelief: Float, i: Int): Unit = {
         if ((belief(i) - tolOffset(i)) <= neighborBelief && neighborBelief <= (belief(i) + tolRadius(i)))
             inFavor(i) += 1
@@ -280,9 +308,16 @@ class Agent(
     }
     
     // ToDo optimize to not recompute belief(i) - tolOffset(i) every time
-    inline final def congruent(neighborBelief: Float, i: Int): Unit = {
+    inline final def congruent1(neighborBelief: Float, i: Int): Unit = {
         val mask = (java.lang.Float.floatToRawIntBits(neighborBelief - (belief(i) - tolOffset(i))) |
           java.lang.Float.floatToRawIntBits(belief(i) + tolRadius(i) - neighborBelief)) >>> 31
+        against(i) += mask
+        inFavor(i) += (mask ^ 1)
+    }
+    
+    inline final def congruent(neighborBelief: Float, upper: Float, lower: Float): Unit = {
+        val mask = (java.lang.Float.floatToRawIntBits(neighborBelief - lower) |
+          java.lang.Float.floatToRawIntBits(upper - neighborBelief)) >>> 31
         against(i) += mask
         inFavor(i) += (mask ^ 1)
     }

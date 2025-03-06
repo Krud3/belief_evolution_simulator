@@ -56,6 +56,7 @@ class Network(networkId: UUID,
     val beliefBuffer2: Array[Float] = Array.fill(runMetadata.agentsPerNetwork)(-1f)
     val privateBeliefs: Array[Float] = Array.fill(runMetadata.agentsPerNetwork)(-1f)
     
+    // ToDoo change to 0 or 1 values
     val speakingBuffer1: AgentStates = AgentStates(runMetadata.agentsPerNetwork)
     val speakingBuffer2: AgentStates = AgentStates(runMetadata.agentsPerNetwork)
     
