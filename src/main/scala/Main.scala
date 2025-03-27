@@ -1,171 +1,45 @@
-import akka.actor.{ActorRef, ActorSystem, Props}
-import benchmarking.OptimizedRdtsc
+//import CLI.CLI
+import CLI.CLI
+import akka.actor.{ActorSystem, Props}
 import com.typesafe.config.ConfigFactory
-import rng.distributions.BimodalDistribution
+import core.model.agent.behavior.bias.CognitiveBiasType
+import core.model.agent.behavior.silence.{SilenceEffectType, SilenceStrategyType}
+import core.simulation.actors.{AddNetworks, Monitor}
+import core.simulation.config.{Agentless, Debug}
+import utils.rng.distributions.Uniform
 
 import java.lang
 import scala.reflect
-import scala.util.Random
-
-// Distributions
-sealed trait Distribution {
-    def toString: String
-}
-
-case object CustomDistribution extends Distribution {
-    override def toString: String = "custom"
-}
-
-case object Uniform extends Distribution {
-    override def toString: String = "uniform"
-}
-
-case class Normal(mean: Double, std: Double) extends Distribution {
-    override def toString: String = s"normal(mean=$mean, std=$std)"
-}
-
-case class Exponential(lambda: Double) extends Distribution {
-    override def toString: String = s"exponential(lambda=$lambda)"
-}
-
-case class BiModal(peak1: Double, peak2: Double, lower: Double = 0, upper: Double = 1) extends Distribution {
-    override def toString: String = s"biModal(peak1=$peak1, peak2=$peak2, lower=$lower, upper=$upper)"
-    
-    val bimodalDistribution: BimodalDistribution = BimodalDistribution(peak1, peak2, lower, upper)
-}
-
-object Distribution {
-    def fromString(s: String): Option[Distribution] = s match {
-        case "customDistribution" => Some(CustomDistribution)
-        case "uniform" => Some(Uniform)
-        case str if str.startsWith("normal") =>
-            val params = str.stripPrefix("normal(mean=").stripSuffix(")").split(", std=")
-            if (params.length == 2) Some(Normal(params(0).toDouble, params(1).toDouble)) else None
-        case str if str.startsWith("exponential") =>
-            val param = str.stripPrefix("exponential(lambda=").stripSuffix(")")
-            Some(Exponential(param.toDouble))
-        case str if str.startsWith("biModal") =>
-            None
-        case _ => None
-    }
-}
-
 
 // Run metadata
 
 
 // Global control
 
-def normalizeByWeightedSum(arr: Array[(String, Float)], selfInfluence: Float = 0f): Array[(String, Float)] = {
-    if (arr.isEmpty) return arr
-    
-    val totalSum = arr.map(_._2).sum + selfInfluence
-    if (totalSum == 0) return arr
-    
-    arr.map { case (str, value) =>
-        (str, value / totalSum)
-    }
-}
-
-// Custom network inserting functions
-//def simulateFromPreviousNetwork(id: UUID, silenceStrategy: SilenceStrategy, silenceEffect: SilenceEffect, 
-//                                iterationLimit: Int, name: String):
-//AddSpecificNetwork = {
-//    AddSpecificNetwork(
-//        agents = DatabaseManager.reRunSpecificNetwork(id, agentType),
-//        stopThreshold = 0.0001,
-//        iterationLimit = iterationLimit,
-//        name = name
-//    )
-//}
-
-//def simulateFromCustomExample(beliefs: Array[Float], selfInfluence: Array[Float] = Array.emptyFloatArray,
-//                              influences: Array[Array[(String, Float)]], silenceStrategy: SilenceStrategy,
-//                              silenceEffect: SilenceEffect, iterationLimit: Int, name: String, 
-//                              tolerances: Array[Float] = Array.empty[Float]): AddSpecificNetwork = {
-//    val agents: Array[AgentInitialState] = Array.ofDim(beliefs.length)
-//    
-//    for (i <- beliefs.indices) {
-//        agents(i) = AgentInitialState(
-//            name = s"Agent${i + 1}",
-//            initialBelief = beliefs(i),
-//            agentType = agentType,
-//            if (selfInfluence.isEmpty) influences(i)
-//            else normalizeByWeightedSum(influences(i), selfInfluence(i)),
-//            if (tolerances.nonEmpty) tolerances(i)
-//            else 0.1, // Default tolerance value
-//        )
-//    }
-//    
-//    AddSpecificNetwork(
-//        agents = agents,
-//        stopThreshold = 0.001,
-//        iterationLimit = iterationLimit,
-//        name = name
-//    )
-//}
-
-object globalTimer {
-    val timer: CustomTimer = new CustomTimer()
-}
-
-def estimateCPUTimerFreq(millisToWait: Long = 100L): Long = {
-    val osFreq = 1_000_000_000L
-    val cpuStart = OptimizedRdtsc.getRdtsc()
-    val osStart = System.nanoTime()
-    
-    var osEnd = 0L
-    var osElapsed = 0L
-    val osWaitTime = osFreq * millisToWait / 1000
-    while (osElapsed < osWaitTime) {
-        osEnd = System.nanoTime()
-        osElapsed = osEnd - osStart
-    }
-    val cpuEnd = OptimizedRdtsc.getRdtsc()
-    val cpuElapsed = cpuEnd - cpuStart
-    var cpuFreq = 0L
-    if (osElapsed > 0) {
-        cpuFreq = osFreq * cpuElapsed / osElapsed
-    }
-    
-    cpuFreq
-}
-
 object Main extends App {
+    // Initialize actor system and monitor
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
+    
+    val cli = new CLI(system, monitor)
+    cli.start()
 
-    val density = 4
-    val numberOfNetworks = 1
-    val numberOfAgents = 10 // 4_194_304 1_048_576
-    
-    
-    globalTimer.timer.start()
-//    val densityRunner: Array[Option[ActorRef]] = new Array[Option[ActorRef]](3)
-//    var i = 0
-//    while (i < 3) {
-//        //val maxDensity = i - 1
-//        //val numberOfAgent = i
-//        densityRunner(i) = Some(system.actorOf(Props(
-//            new DensityRunner(density - 1 + i, 15, monitor, numberOfAgents, numberOfNetworks)),
-//                                               s"DensityRunner$i"))
-//        monitor ! GetDensityRunner(densityRunner(i).get)
-//        i += 1
-//    }
-    
-    
-    monitor ! AddNetworks(
-        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),
-        agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
-        distribution = Uniform,
-        saveMode = Debug, //NeighborlessMode(Roundless) Agentless StandardLight Debug
-        recencyFunction = None,
-        numberOfNetworks = numberOfNetworks,
-        density = density,
-        iterationLimit = 1000,
-        degreeDistribution = 2.5f,
-        stopThreshold = 0.001f
-    )
+//    val density = 128 // [4095, 1098, 520, 257, 128, 64, 32, 16, 8, 4, 2, 1]
+//    val numberOfNetworks = 10
+//    val numberOfAgents = 1024 /// 4_194_304 2_097_152 1_048_576
+//
+//    monitor ! AddNetworks(
+//        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memory, numberOfAgents)),
+//        agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
+//        distribution = Uniform,
+//        saveMode = Debug, //NeighborlessMode(Roundless) Agentless StandardLight Debug
+//        recencyFunction = None,
+//        numberOfNetworks = numberOfNetworks,
+//        density = density,
+//        iterationLimit = 1000,
+//        degreeDistribution = 2.5f,
+//        stopThreshold = 0.001f
+//    )
     
 //    monitor ! AddNetworks(
 //        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)),

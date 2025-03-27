@@ -2,6 +2,8 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 
 ThisBuild / scalaVersion := "3.6.1"
 ThisBuild / fork := true
+ThisBuild / javaHome := Some(file("C:/Program Files/Java/jdk-23"))
+run / connectInput := true
 
 // JVM options
 javaOptions ++= Seq(
