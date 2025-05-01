@@ -1,5 +1,4 @@
 package core.model.agent.behavior.silence
-
 import io.serialization.binary.Encoder
 
 trait SilenceEffect {
@@ -73,6 +72,17 @@ enum SilenceEffectType:
     case Memoryless
     case Recency(recencyFunction: (Float, Int) => Float)
     case Peers(baseEffect: SilenceEffectType)
+
+
+object SilenceEffectType:
+    def fromString(string: String): SilenceEffectType = {
+        val parts = string.toLowerCase.trim.split("\\(", 2)
+        parts(0) match
+            case "degroot" => SilenceEffectType.DeGroot
+            case "memory" => SilenceEffectType.Memory
+            case "memoryless" => SilenceEffectType.Memoryless
+            case _ => SilenceEffectType.Memoryless
+    }
 
 object SilenceEffectFactory:
     def create(effectType: SilenceEffectType): SilenceEffect = effectType match

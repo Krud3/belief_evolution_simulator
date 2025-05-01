@@ -27,7 +27,7 @@ def randomBetween(lower: Double = 0, upper: Double = 1, decimals: Int = 8): Doub
 }
 
 def randomIntBetween(lower: Int = 0, upper: Int = 1): Int = {
-    lower + random.nextInt(upper + 1)
+    lower + Random.nextInt(upper - lower + 1)
 }
 
 def saveToCsv[T](filePath: String, header: String, data: Seq[T], formatData: T => String): Unit = {

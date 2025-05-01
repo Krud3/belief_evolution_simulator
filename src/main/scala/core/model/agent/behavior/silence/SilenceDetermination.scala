@@ -59,6 +59,31 @@ enum SilenceStrategyType:
     case Threshold(threshold: Float)
     case Confidence(threshold: Float, openMindedness: Int)
 
+
+object SilenceStrategyType:
+    def fromString(string: String): SilenceStrategyType = {
+        val parts = string.toLowerCase.trim.split("\\(", 2)
+        
+        parts(0) match
+            case "degroot" => DeGroot
+            case "majority" => Majority
+            case "threshold" =>
+                if parts.length > 1 then
+                    Threshold(parts(1).stripSuffix(")").toFloat)
+                else
+                    Threshold(0.5f) // Default value
+            case "confidence" =>
+                if parts.length > 1 then
+                    val params = parts(1).stripSuffix(")").split(",", 2)
+                    if params.length == 2 then
+                        Confidence(params(0).toFloat, params(1).toInt)
+                    else
+                        Confidence(params(0).toFloat, 1) // Default openMindedness
+                else
+                    Confidence(0.5f, 1) // Default values
+            case _ => Majority
+    }
+
 object SilenceStrategyFactory:
     def create(strategyType: SilenceStrategyType): SilenceStrategy = strategyType match
         case SilenceStrategyType.DeGroot => DeGrootSilenceStrategy()
@@ -66,4 +91,3 @@ object SilenceStrategyFactory:
         case SilenceStrategyType.Threshold(threshold) => ThresholdSilence(threshold)
         case SilenceStrategyType.Confidence(threshold, openMindedness) =>
             ConfidenceSilence(threshold, openMindedness)
-            

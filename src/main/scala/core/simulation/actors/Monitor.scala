@@ -6,6 +6,7 @@ import core.model.agent.behavior.bias.*
 import core.simulation.config.*
 import io.persistence.RoundRouter
 import utils.rng.distributions.Distribution
+import utils.timers.CustomMultiTimer
 
 import java.util.UUID
 import scala.collection.mutable
@@ -103,7 +104,7 @@ case object RunComplete // Monitor -> Run
 // Actor
 class Monitor extends Actor {
     // Limits
-    val agentLimit: Int = 8_388_608 // 16_777_216 10_485_760 4_194_304 1_048_576 8_388_608 2_097_152
+    val agentLimit: Int = 16_777_216 // 16_777_216 10_485_760 4_194_304 1_048_576 8_388_608 2_097_152
     var currentUsage: Int = agentLimit
     
     // Router
@@ -117,6 +118,7 @@ class Monitor extends Actor {
     var totalActiveAgents: Long = 0L
     
     // Testing performance end
+    val simulationTimers = new CustomMultiTimer
     
     def receive: Receive = {
         case AddSpecificNetwork(agents, neighbors, distribution, saveMode, stopThreshold, iterationLimit, 
@@ -158,6 +160,7 @@ class Monitor extends Actor {
             val actor = context.actorOf(Props(new Run(runMetadata, agentTypeCount, agentBiases)), s"R$totalRuns")
             activeRuns += (actor.path.name -> (actor, runMetadata.numberOfNetworks,
               runMetadata.agentsPerNetwork * runMetadata.numberOfNetworks))
+            simulationTimers.start(s"${actor.path.name}")
             actor ! StartRun
         
 //        case AddNetworksFromExistingRun(runId, agentTypeCount, agentBiases, recencyFunction, saveMode,
@@ -213,6 +216,7 @@ class Monitor extends Actor {
         case RunComplete =>
             println("\nThe run has been complete\n")
             val senderActor = sender().path.name
+            simulationTimers.stop(senderActor)
             totalActiveNetworks -= activeRuns(senderActor)._2
             totalActiveAgents -= activeRuns(senderActor)._3
             activeRuns -= senderActor

@@ -1,7 +1,26 @@
 package utils.datastructures
 
-class ArrayList[T](initialSize: Int = 16) {
-    var arr = new Array[Int](initialSize)
+import scala.reflect.ClassTag
+
+class ArrayList[T: ClassTag](initialSize: Int = 16) {
+    var arr = new Array[T](initialSize)
+    var size = 0
+    
+    def add(item: T): Unit = {
+        // Check capacity
+        if (size >= arr.length)
+            arr = Array.copyOf(arr, arr.length * 2)
+        
+        // Add item
+        arr(size) = item
+        size += 1
+    }
+    
+    def toArray: Array[T] = {
+        val result = new Array[T](size)
+        Array.copy(arr, 0, result, 0, size)
+        result
+    }
 }
 
 class ArrayListInt(initialCapacity: Int = 16) {

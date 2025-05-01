@@ -6,6 +6,7 @@ import core.model.agent.behavior.bias.*
 import core.model.agent.behavior.silence.*
 import core.simulation.actors.*
 import core.simulation.config.*
+import utils.datastructures.{ArrayList, ArrayListInt}
 import utils.rng.distributions.*
 
 import scala.io.StdIn
@@ -49,6 +50,12 @@ class CLI(system: ActorSystem, monitor: ActorRef) {
                   |
                   |run [numNetworks] [numAgents] [density] [iterationLimit] [stopThreshold] [saveMode]
                   |  - Runs a generated simulation with the specified parameters
+                  |  - [numAgents] should be written as <SilenceStrategyType>:<SilenceEffectType>:<numberOfAgents> can chain multiple agent types, default is memoryless majority
+                  |  - Silence strategies: DeGroot, Majority, Threshold(threshold: Float) and Confidence(threshold: Float, openMindedness: Int)
+                  |  - Silence effects: DeGroot, Memory and Memoryless
+                  |  - Examples:
+                  |  - run 1 4 3 25 0.0001 Debug
+                  |  - run 1 majority:Memoryless:4 majority:Memory:4 3 25 0.0001 Debug
                   |
                   |run-specific
                   |  - Starts a guided setup for a specific network configuration
@@ -68,18 +75,44 @@ class CLI(system: ActorSystem, monitor: ActorRef) {
             case "run" =>
                 if (tokens.length < 6) {
                     println("Error: Not enough parameters")
-                    println("Usage: run-basic [numNetworks] [numAgentsPerNetwork] [density] " +
+                    println("Usage: run-basic [numNetworks] [agentTypesPerNetwork] [density] " +
                               "[iterationLimit] [stopThreshold] [saveMode]")
                     return
                 }
 
                 try {
+
+                    var tokenOffset = 0
+                    val agentTypeCount = ArrayList[(SilenceStrategyType, SilenceEffectType, Int)]()
+                    var hasNext = true
+                    while (hasNext) {
+                        hasNext = false
+                        val parts = tokens(2 + tokenOffset).split(":")
+                        if (parts.length == 3) {
+                            tokenOffset += 1
+                            hasNext = true
+                            agentTypeCount.add((
+                              SilenceStrategyType.fromString(parts(0)),
+                              SilenceEffectType.fromString(parts(1)),
+                              parts(2).toInt
+                            ))
+                        }
+                    }
+                    tokenOffset -= 1
+                    if (tokenOffset == -1) {
+                        tokenOffset = 0
+                        agentTypeCount.add((
+                          SilenceStrategyType.fromString("default"),
+                          SilenceEffectType.fromString("default"),
+                          tokens(2).toInt
+                        ))
+                    }
+                    
                     val numNetworks = tokens(1).toInt
-                    val numAgents = tokens(2).toInt
-                    val density = tokens(3).toInt
-                    val iterLimit = tokens(4).toInt
-                    val stopThreshold = tokens(5).toFloat
-                    val saveModeStr = tokens(6)
+                    val density = tokens(3 + tokenOffset).toInt
+                    val iterLimit = tokens(4 + tokenOffset).toInt
+                    val stopThreshold = tokens(5 + tokenOffset).toFloat
+                    val saveModeStr = tokens(6 + tokenOffset)
                     val saveMode = stringToSaveMode(saveModeStr) match {
                         case Some(mode) => mode
                         case None =>
@@ -88,10 +121,10 @@ class CLI(system: ActorSystem, monitor: ActorRef) {
                             return
                     }
                     
-                    println(s"Starting generated run with $numNetworks networks, $numAgents agents, density $density...")
+                    println(s"Starting generated run with $numNetworks networks, density $density...")
 
                     monitor ! AddNetworks(
-                        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memory, numAgents)),
+                        agentTypeCount = agentTypeCount.toArray,
                         agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
                         distribution = Uniform,
                         saveMode = saveMode,
