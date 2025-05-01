@@ -291,17 +291,17 @@ class Run extends Actor {
                         if (networkBuildTimes.length % 2 == 0) (networkBuildTimes(n / 2 - 1) + networkBuildTimes(n / 2)) / 2
                         else networkBuildTimes(n / 2))
                         }
-                    |Max run time: ${globalTimers.formatDuration(networkRunTimes.max)}
-                       |Min run time: ${globalTimers.formatDuration(networkRunTimes.min)}
-                       |Avg run time: ${globalTimers.formatDuration(networkRunTimes.sum / n)}
-                       |Median run time: ${globalTimers.formatDuration(
+                        |Max run time: ${globalTimers.formatDuration(networkRunTimes.max)}
+                        |Min run time: ${globalTimers.formatDuration(networkRunTimes.min)}
+                        |Avg run time: ${globalTimers.formatDuration(networkRunTimes.sum / n)}
+                        |Median run time: ${globalTimers.formatDuration(
                         if (networkRunTimes.length % 2 == 0) (networkRunTimes(n / 2 - 1) + networkRunTimes(n / 2)) / 2
                         else networkRunTimes(n / 2))
                         }
-                       |Consensus runs: $networksConsensus
-                       |Dissensus runs: ${runMetadata.numberOfNetworks - networksConsensus}
-                       |----------------------------
-                       """.stripMargin
+                        |Consensus runs: $networksConsensus
+                        |Dissensus runs: ${runMetadata.numberOfNetworks - networksConsensus}
+                        |----------------------------
+                    """.stripMargin
                     )
                 context.parent ! RunComplete
             }

@@ -5,11 +5,11 @@ import scala.util.Random
 class FenwickTree(size: Int, density: Int, setValue: Double, countFreqs: Boolean = false) {
     private val tree = Array.ofDim[Double](size + 1) //Array.fill(8)(0)
     private val scoresArr = Array.ofDim[Double](size + 1)
-    private val minScore = density + (density * setValue)
+    private val freqs = Array.ofDim[Double](size + 1)
+    private val minScore: Double = density + (density * setValue)
     private var curMax: Double = (density + 1) * minScore
     private var curLength: Int = density + 1
-    private val freqs = Array.ofDim[Double](size + 1)
-    private val random = new Random // Radom(10)
+    private val random = new Random(41)
     
     for (i <- 0 until (density + 1)) {
         update(i: Int, minScore: Double)

@@ -66,7 +66,7 @@ class Network(networkId: UUID,
     // Neighbors
     var neighborsRefs: Array[Int] = null // Size = -m^2 - m + 2mn or m(m-1) + (n - m) * 2m
     var neighborsWeights: Array[Float] = null
-    var neighborBiases: Array[BiasFunction] = null
+    var neighborBiases: Array[Byte] = null
     val indexOffset: Array[Int] = new Array[Int](runMetadata.agentsPerNetwork)
     
     // Agent Statics
@@ -119,7 +119,7 @@ class Network(networkId: UUID,
             val agentMap = new java.util.HashMap[String, Int](agents.length)
             neighborsRefs = new Array[Int](neighbors.length)
             neighborsWeights = new Array[Float](neighbors.length)
-            neighborBiases = new Array[BiasFunction](neighbors.length)
+            neighborBiases = new Array[Byte](neighbors.length)
             silenceStrategy = new Array[SilenceStrategy](agents.length)
             silenceEffect = new Array[SilenceEffect](agents.length)
             names = new Array[String](agents.length)
@@ -159,6 +159,7 @@ class Network(networkId: UUID,
                         neighborsRefs,
                         neighborsWeights,
                         neighborBiases,
+                        networkId,
                         agentsPerActor(index),
                         bucketStart(index),
                         names)
@@ -176,7 +177,7 @@ class Network(networkId: UUID,
                 indexOffset(source) = i + 1 
                 neighborsRefs(i) = target
                 neighborsWeights(i) = neighbor.influence
-                neighborBiases(i) = neighbor.bias.toFunction
+                neighborBiases(i) = neighbor.bias.toBiasCode
                 i += 1
             }
 
@@ -189,7 +190,7 @@ class Network(networkId: UUID,
             val size = (density * (density - 1)) + ((runMetadata.agentsPerNetwork - density) * (2 * density))
             neighborsRefs = new Array[Int](size)
             neighborsWeights = new Array[Float](size)
-            neighborBiases = new Array[BiasFunction](size)
+            neighborBiases = new Array[Byte](size)
             
             val fenwickTree = new FenwickTree(
                 runMetadata.agentsPerNetwork,
@@ -212,12 +213,14 @@ class Network(networkId: UUID,
                 
                 // Set the agent types
                 var j = 0
-                var k = 0
+                var total = 0
                 while (j < agentTypes.length) {
+                    var k = 0
                     while (k < agentTypes(j)) {
-                        silenceStrategy(k + bucketStart(i)) = SilenceStrategyFactory.create(agentTypeCount(j)._1)
-                        silenceEffect(k + bucketStart(i)) = SilenceEffectFactory.create(agentTypeCount(j)._2)
+                        silenceStrategy(total + bucketStart(i)) = SilenceStrategyFactory.create(agentTypeCount(j)._1)
+                        silenceEffect(total + bucketStart(i)) = SilenceEffectFactory.create(agentTypeCount(j)._2)
                         k += 1
+                        total += 1
                     }
                     j += 1
                 }
@@ -242,6 +245,7 @@ class Network(networkId: UUID,
                         neighborsRefs,
                         neighborsWeights,
                         neighborBiases,
+                        networkId,
                         agentsPerActor(index),
                         bucketStart(index),
                         null)
@@ -473,24 +477,6 @@ class Network(networkId: UUID,
             i += 1
         }
         agents(i)
-    }
-    
-    def reverseBits(x: Int): Int = {
-        var finalValue = 0
-        var i = 0
-        while (i < 8) {
-            var mask = 1 << i
-            finalValue |= ((mask & x) >>> i) << (31 - i)
-            mask = 1 << (31 - i)
-            finalValue |= ((mask & x) >>> (31 - i)) << i
-            
-            mask = 1 << (i + 1)
-            finalValue |= ((mask & x) >>> i) << (30 - i)
-            mask = 1 << (30 - i)
-            finalValue |= ((mask & x) >>> (30 - i)) << i
-            i += 2
-        }
-        finalValue
     }
     
 }
