@@ -29,6 +29,19 @@ class UUIDS {
         UUID(high, low)
     }
     
+    def v7ToLongArray(uuidsArr: Array[Long]): Unit = {
+        var i = 0
+        var timestamp = System.currentTimeMillis
+        val version = 0x7000
+        val variant = 0b10L << 62
+        while (i < uuidsArr.length) {
+            uuidsArr(i) = (timestamp << 12) | version | (rand.xoshiro256StarStar() & 0x3FF)
+            uuidsArr(i + 1) = (rand.xoshiro256StarStar() >>> 2) | variant
+            timestamp += 1
+            i += 2
+        }
+    }
+    
     def v7Bulk(uuidsArr: Array[UUID]): Unit = {
         var i = 0
         var timestamp = System.currentTimeMillis
@@ -40,7 +53,6 @@ class UUIDS {
             uuidsArr(i) = UUID(high, low)
             timestamp += 1
             i += 1
-            
         }
     }
     

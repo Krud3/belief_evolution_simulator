@@ -6,6 +6,7 @@ import core.model.agent.behavior.bias.CognitiveBiasType
 import core.model.agent.behavior.silence.{SilenceEffectType, SilenceStrategyType}
 import core.simulation.actors.{AddNetworks, Monitor}
 import core.simulation.config.{Agentless, Debug}
+import io.websocket.WebSocketServer
 import utils.rng.distributions.Uniform
 
 import java.lang
@@ -21,15 +22,17 @@ object Main extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
+    WebSocketServer.initialize(system)
+    
     val cli = new CLI(system, monitor)
     cli.start()
 
-//    val density = 128 // [4095, 1098, 520, 257, 128, 64, 32, 16, 8, 4, 2, 1]
-//    val numberOfNetworks = 10
-//    val numberOfAgents = 1024 /// 4_194_304 2_097_152 1_048_576
+//    val density = 3 // [4095, 1098, 520, 257, 128, 64, 32, 16, 8, 4, 2, 1]
+//    val numberOfNetworks = 1
+//    val numberOfAgents = 4 /// 4_194_304 2_097_152 1_048_576
 //
 //    monitor ! AddNetworks(
-//        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memory, numberOfAgents)),
+//        agentTypeCount = Array((SilenceStrategyType.Majority, SilenceEffectType.Memoryless, numberOfAgents)), // .Confidence(0.001, 1)
 //        agentBiases = Array((CognitiveBiasType.DeGroot, 1.0f)),
 //        distribution = Uniform,
 //        saveMode = Debug, //NeighborlessMode(Roundless) Agentless StandardLight Debug
@@ -38,7 +41,7 @@ object Main extends App {
 //        density = density,
 //        iterationLimit = 1000,
 //        degreeDistribution = 2.5f,
-//        stopThreshold = 0.001f
+//        stopThreshold = 0.00000001f
 //    )
     
 //    monitor ! AddNetworks(
@@ -169,5 +172,6 @@ object Main extends App {
     
     val runtime = Runtime.getRuntime
     val maxMemory = runtime.maxMemory() / (1024 * 1024)
+    println(s"Max memory: $maxMemory")
 }
 
