@@ -18,9 +18,9 @@ import scala.collection.{IndexedSeqView, mutable}
 
 object DatabaseManager {
     private val hikariConfig = new HikariConfig()
-    hikariConfig.setJdbcUrl("jdbc:postgresql://localhost:5433/promueva_new")
+    hikariConfig.setJdbcUrl("jdbc:postgresql://localhost:5432/promueva_new")
     hikariConfig.setUsername("postgres")
-    hikariConfig.setPassword("postgres")
+    hikariConfig.setPassword("123facil123")
     
     // Parallel
     hikariConfig.setMaximumPoolSize(32)

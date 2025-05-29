@@ -22,7 +22,7 @@ object Main extends App {
     val system = ActorSystem("original", ConfigFactory.load().getConfig("app-dispatcher"))
     val monitor = system.actorOf(Props(new Monitor), "Monitor")
     
-    WebSocketServer.initialize(system)
+    WebSocketServer.initialize(system, monitor)
     
     val cli = new CLI(system, monitor)
     cli.start()

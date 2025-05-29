@@ -8,9 +8,9 @@ pacman::p_load(
 conn <- dbConnect(RPostgres::Postgres(),
                   dbname = "promueva_new",
                   host = "localhost",
-                  port = 5433,
+                  port = 5432,
                   user = "postgres",
-                  password = "postgres")
+                  password = "123facil123")
 
 network <- "
 SELECT id FROM
